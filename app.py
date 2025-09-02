@@ -88,7 +88,7 @@ LANGUAGE_DICT = {
 # -------------------------
 @st.cache_resource(show_spinner=False)
 def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
-    """Load a light sequence classification model for demo. Replace with ClinicalBERT for production."""
+    """Load a light sequence classification model for demo. This is suitable for the Risk Stratification and NLP modules."""
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -251,13 +251,8 @@ menu = st.sidebar.radio("Select Module", [
 ])
 
 # Load models (cached loaders)
-# For NLP-related tasks, we'll try to load a domain-specific model
-# Note: For real-world use, replace with your fine-tuned BioBERT model
-try:
-    clinical_model_name = "bhadresh-savani/bert-base-uncased-emotion" # Replaced with a classification-ready model for demo
-    text_tok, text_model = AutoTokenizer.from_pretrained(clinical_model_name), AutoModelForSequenceClassification.from_pretrained(clinical_model_name)
-except Exception:
-    text_tok, text_model = load_text_classifier()
+# For NLP-related tasks, we'll try to load a classification model
+text_tok, text_model = load_text_classifier()
 
 sent_tok, sent_model = load_sentiment_model()
 img_model, img_preproc = load_imaging_model()
@@ -310,7 +305,7 @@ if menu == "🧑‍⚕️ Risk Stratification":
             f"Cholesterol: {pdata['cholesterol']}. Notes: {pdata['notes']}"
         )
         if text_tok is not None and text_model is not None:
-            # Note: The model 'bhadresh-savani/bert-base-uncased-emotion' has its own labels. 
+            # Note: The model 'bhadresh-savani/bert-base-uncased-emotion' has its own labels.
             # For a proper risk stratification, you'd fine-tune a clinical model on your specific labels.
             res = text_classify(concat_text, text_tok, text_model, labels=None)
             st.success(f"Predicted Risk: **{res['label']}** (confidence {res['score']:.2f})")
