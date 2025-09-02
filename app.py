@@ -505,7 +505,8 @@ elif menu == "💡 Chat Assistant":
                         prompt=prompt,
                         model="mistralai/Mixtral-8x7B-Instruct-v0.1"
                     )
-                    full_response = chat_completion['output']['choices'][0]['text']
+                    # Corrected access to the response text
+                    full_response = chat_completion['choices'][0]['text']
                     st.session_state.messages.append({"role": "assistant", "content": full_response})
                     st.write(full_response)
                 except Exception as e:
