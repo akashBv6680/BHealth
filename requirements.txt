@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+huggingface-hub
+torch
+transformers
+torchvision
+Pillow
+scikit-learn
+mlxtend
+tensorflow
+together
