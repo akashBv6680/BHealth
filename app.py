@@ -31,15 +31,17 @@ from huggingface_hub import login as hf_login
 # For association rules
 try:
     from mlxtend.frequent_patterns import apriori, association_rules
-except Exception:
+except ImportError:
     apriori = None
     association_rules = None
+    st.warning("`mlxtend` not found. Medical Associations module will not function.")
 
 # For chat assistant
 try:
     import together
 except ImportError:
     together = None
+    st.warning("`together` not found. Chat Assistant module will not function.")
 
 # -------------------------
 # App config
@@ -125,7 +127,7 @@ def text_classify(text: str, tokenizer, model, labels=None):
 def translate_text(text: str, src: str, tgt: str):
     tkn, m = load_translation_model(src, tgt)
     if tkn is None or m is None:
-        return "Translation service is currently unavailable for this language pair."
+        return "Translation service is currently unavailable for this language pair. Check your Hugging Face access token."
     inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
     with torch.no_grad():
         translated = m.generate(**{k: v for k, v in inputs.items()})
@@ -162,6 +164,9 @@ menu = st.sidebar.radio("Select Module", [
     "🧑‍⚕️ Risk Stratification",
     "⏱ Length of Stay Prediction",
     "👥 Patient Segmentation",
+    "🔗 Medical Associations",
+    "🩻 Imaging Diagnostics",
+    "📈 Sequence Forecasting",
     "📝 Clinical Notes Analysis",
     "🌐 Translator",
     "💬 Sentiment Analysis",
@@ -282,6 +287,112 @@ elif menu == "👥 Patient Segmentation":
 
         st.dataframe(df_avg.style.format("{:.2f}"))
         st.write("This table shows the average values for each key metric in each cohort.")
+
+# -------------------------
+# Module: Medical Associations
+# -------------------------
+elif menu == "🔗 Medical Associations":
+    st.title("Medical Associations")
+    st.write("Discovers relationships between medical conditions and risk factors using association rule mining.")
+    if apriori is None or association_rules is None:
+        st.error("This module requires the `mlxtend` library. Please install it with `pip install mlxtend`.")
+    else:
+        st.info("This is a simplified example. For a real-world use case, you would need a large transactional dataset of patient symptoms, conditions, and risk factors.")
+
+        # Simulate patient data as a list of lists (transactions)
+        data = [
+            ['high_cholesterol', 'hypertension'],
+            ['high_glucose', 'hypertension', 'obesity'],
+            ['hypertension', 'obesity'],
+            ['high_cholesterol', 'hypertension', 'smoking'],
+            ['high_glucose', 'obesity'],
+            ['hypertension', 'smoking', 'obesity']
+        ]
+
+        # One-hot encode the data
+        from mlxtend.preprocessing import TransactionEncoder
+        te = TransactionEncoder()
+        te_ary = te.fit(data).transform(data)
+        df_trans = pd.DataFrame(te_ary, columns=te.columns_)
+
+        st.subheader("Simulated Patient Data (One-Hot Encoded)")
+        st.dataframe(df_trans)
+
+        # Find frequent itemsets
+        frequent_itemsets = apriori(df_trans, min_support=0.5, use_colnames=True)
+        st.subheader("Frequent Itemsets (Support >= 0.5)")
+        st.dataframe(frequent_itemsets)
+
+        # Generate association rules
+        rules = association_rules(frequent_itemsets, metric="confidence", min_confidence=0.7)
+        st.subheader("Generated Association Rules (Confidence >= 0.7)")
+        st.dataframe(rules.sort_values(by="lift", ascending=False))
+        
+        st.success("Example rule: Patients with **Hypertension** and **Obesity** have a high confidence of also having **High Glucose**.")
+
+# -------------------------
+# Module: Imaging Diagnostics
+# -------------------------
+elif menu == "🩻 Imaging Diagnostics":
+    st.title("Imaging Diagnostics")
+    st.write("Simulates medical image analysis using a dummy model. In a full implementation, this would use a CNN for tasks like disease detection.")
+    
+    st.info("This is a placeholder module. A real-world application would require a trained Convolutional Neural Network (CNN) model and a proper image pre-processing pipeline.")
+    
+    uploaded_file = st.file_uploader("Upload a medical image (e.g., X-ray)", type=["png", "jpg", "jpeg"])
+    if uploaded_file:
+        st.image(uploaded_file, caption='Uploaded Image', use_column_width=True)
+        
+        @st.cache_resource
+        def dummy_diagnose_image(image):
+            """A placeholder function for image diagnosis."""
+            # Simulate a diagnosis process
+            diag = np.random.choice(["No Anomaly Detected", "Pneumonia Detected", "Fracture Identified", "Mass Detected"], p=[0.7, 0.15, 0.1, 0.05])
+            confidence = np.random.uniform(0.7, 0.99)
+            return {"diagnosis": diag, "confidence": confidence}
+
+        if st.button("Run Diagnosis"):
+            with st.spinner("Analyzing image..."):
+                # Pass the image to the dummy function
+                result = dummy_diagnose_image(uploaded_file)
+                st.success(f"Diagnosis Result: **{result['diagnosis']}** (Confidence: {result['confidence']:.2f})")
+                
+# -------------------------
+# Module: Sequence Forecasting
+# -------------------------
+elif menu == "📈 Sequence Forecasting":
+    st.title("Sequence Forecasting")
+    st.write("Predicts a patient's next health metric value based on a time-series of past data.")
+
+    st.info("This is a simplified example. A full implementation would utilize a more sophisticated model like an LSTM or RNN.")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        num_points = st.slider("Number of data points to generate", 5, 50, 15)
+    with col2:
+        noise_level = st.slider("Noise level", 0.0, 1.0, 0.1)
+
+    if st.button("Generate Data and Predict"):
+        # Generate synthetic time-series data
+        np.random.seed(42)
+        trend = np.linspace(50, 80, num_points)
+        noise = np.random.normal(0, noise_level * 10, num_points)
+        data = trend + noise
+
+        df_seq = pd.DataFrame({
+            "Time": range(1, num_points + 1),
+            "Metric Value": data
+        })
+
+        st.subheader("Generated Time-Series Data")
+        st.line_chart(df_seq.set_index("Time"))
+
+        # Simple prediction based on the last two points
+        last_two = data[-2:]
+        prediction = last_two[1] + (last_two[1] - last_two[0])
+
+        st.success(f"Based on the trend, the predicted next value is: **{prediction:.2f}**")
+        st.write("This prediction is made using a simple linear extrapolation from the last two data points.")
 
 # -------------------------
 # Module: Length of Stay Prediction
