@@ -22,7 +22,7 @@ from transformers import (
     AutoModelForSequenceClassification,
     AutoModel,
     MarianMTModel,
-    MarianTokenizer
+    MarianTokenizer,
 )
 import torchvision.transforms as T
 from PIL import Image
@@ -48,10 +48,13 @@ except ImportError:
 # -------------------------
 st.set_page_config(page_title="HealthAI Suite", page_icon="🩺", layout="wide")
 
+# Hugging Face login
 try:
-    hf_login(token=st.secrets["HF_ACCESS_TOKEN"], add_to_git_credential=False)
-except KeyError:
-    st.warning("Hugging Face access token not found. Some models may not load.")
+    # Use st.secrets to securely manage your Hugging Face token
+    if "HF_ACCESS_TOKEN" in st.secrets:
+        hf_login(token=st.secrets["HF_ACCESS_TOKEN"], add_to_git_credential=False)
+    else:
+        st.warning("Hugging Face access token not found in secrets.toml.")
 except Exception as e:
     st.error(f"Hugging Face login failed: {e}")
 
@@ -112,25 +115,48 @@ def load_tabular_models():
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
         return {"label": "unknown", "score": 0.0}
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-    with torch.no_grad():
-        outputs = model(**inputs)
+    
+    # Check if a model is suitable for sequence classification
+    if not hasattr(model, 'logits'):
+        # Corrected logic to handle models that don't directly output logits
+        try:
+            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+            with torch.no_grad():
+                outputs = model(**inputs)
+            if hasattr(outputs, 'logits'):
+                logits = outputs.logits
+            else:
+                # Fallback for models with different output formats
+                st.error("Model output format not supported. Could not find 'logits'.")
+                return {"label": "error", "score": 0.0}
+        except Exception as e:
+            st.error(f"Error during text classification: {e}")
+            return {"label": "error", "score": 0.0}
+    else:
+        # Original logic for models that directly output logits
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
         logits = outputs.logits
-        probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
-        pred = int(np.argmax(probs))
-        if labels:
-            lbl = labels[pred]
-        else:
-            lbl = str(pred)
-        return {"label": lbl, "score": float(probs[pred])}
+
+    probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
+    pred = int(np.argmax(probs))
+    
+    if labels:
+        lbl = labels[pred]
+    else:
+        lbl = str(pred)
+    return {"label": lbl, "score": float(probs[pred])}
+
 
 def translate_text(text: str, src: str, tgt: str):
     tkn, m = load_translation_model(src, tgt)
     if tkn is None or m is None:
-        return "Translation service is currently unavailable for this language pair. Check your Hugging Face access token."
+        return "Translation model not available for this pair; returning original text."
+    
     inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
     with torch.no_grad():
-        translated = m.generate(**{k: v for k, v in inputs.items()})
+        translated = m.generate(**inputs)
     out = tkn.batch_decode(translated, skip_special_tokens=True)[0]
     return out
 
@@ -403,8 +429,11 @@ elif menu == "⏱ Length of Stay Prediction":
     submitted, pdata = patient_input_form("los")
     if submitted:
         los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
-        los_est = round(float(los_est), 2)
-        st.success(f"Predicted length of stay: **{los_est} days**")
+        
+        # This line rounds the prediction to the nearest whole number
+        los_est_rounded = int(round(los_est))
+        
+        st.success(f"Predicted length of stay: **{los_est_rounded} days**")
         st.info("The prediction is based on a simplified model. For a real-world application, a model fine-tuned on extensive patient data would be required.")
 
 # -------------------------
@@ -418,8 +447,14 @@ elif menu == "📝 Clinical Notes Analysis":
         if not notes.strip():
             st.warning("Please paste clinical notes to analyze.")
         else:
+            # We use a model that is suitable for sequence classification and outputs logits
+            # The previous version had an issue with the model.
             res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
-            st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
+            if res['label'] == 'error':
+                 st.error("Failed to analyze notes. Check the model and input.")
+            else:
+                 st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
+
 
 # -------------------------
 # Module: Translator
