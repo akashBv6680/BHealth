@@ -79,7 +79,7 @@ TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 LANGUAGE_DICT = {
     "English": "en", "Spanish": "es", "Arabic": "ar", "French": "fr", "German": "de", "Hindi": "hi",
     "Tamil": "ta", "Bengali": "bn", "Japanese": "ja", "Korean": "ko", "Russian": "ru",
-    "Chinese (Simplified)": "zh-Hans", "Portuguese": "pt", "Italian": "it", "Dutch": "nl", "Turkish": "tr"
+    "Chinese (Simplified)": "zh", "Portuguese": "pt", "Italian": "it", "Dutch": "nl", "Turkish": "tr"
 }
 
 # Hugging Face Translation Models for Chatbot
@@ -124,7 +124,8 @@ def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-l
         m = AutoModelForSequenceClassification.from_pretrained(model_name)
         m.eval()
         return tok, m
-    except Exception:
+    except Exception as e:
+        st.error(f"Failed to load sentiment model: {e}")
         return None, None
 
 @st.cache_resource(show_spinner=False)
@@ -174,7 +175,7 @@ def language_translator(text, src_lang, tgt_lang):
 
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
-        return {"label": "unknown", "score": 0.0}
+        return {"label": "error", "score": 0.0}
     
     try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
@@ -197,7 +198,7 @@ def text_classify(text: str, tokenizer, model, labels=None):
 
 def sentiment_text(text: str, tokenizer, model):
     if tokenizer is None or model is None:
-        return {"label": "unknown", "score": 0.0}
+        return {"label": "error", "score": 0.0}
     inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
     with torch.no_grad():
         outputs = model(**inputs)
@@ -561,12 +562,14 @@ elif menu == "💡 Chat Assistant":
             }
             response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
             response.raise_for_status()
-            return response.json()['choices'][0]['text']
+            # The Together AI API response format changed, so we need to adjust
+            # to access the correct field.
+            return response.json()['choices'][0]['message']['content']
         except requests.exceptions.RequestException as e:
             st.error(f"Error calling Together AI API: {e}")
             return "An error occurred while getting a response."
-        except KeyError:
-            st.error("Invalid API response format.")
+        except KeyError as e:
+            st.error(f"Invalid API response format: Missing key {e}")
             return "Failed to get a valid response from the model."
 
     # React to user input from the chat box
@@ -581,13 +584,3 @@ elif menu == "💡 Chat Assistant":
             with st.spinner("Thinking..."):
                 # Call LLM with English prompt
                 llm_response_english = call_together_api(english_prompt)
-                
-                # Translate LLM response back to the selected language
-                final_response = language_translator(llm_response_english, "en", LANGUAGE_DICT[selected_language])
-                
-                # Add a disclaimer at the end of the response
-                disclaimer = "\n\n**Disclaimer:** This information is for general knowledge only and not a substitute for professional medical advice."
-                final_response_with_disclaimer = final_response + disclaimer
-                
-                st.session_state.messages.append({"role": "assistant", "content": final_response_with_disclaimer})
-                st.write(final_response_with_disclaimer)
