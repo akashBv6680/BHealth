@@ -76,31 +76,6 @@ except KeyError:
 
 TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
 
-LANGUAGE_DICT = {
-    "English": "en", "Spanish": "es", "Arabic": "ar", "French": "fr", "German": "de", "Hindi": "hi",
-    "Tamil": "ta", "Bengali": "bn", "Japanese": "ja", "Korean": "ko", "Russian": "ru",
-    "Chinese (Simplified)": "zh", "Portuguese": "pt", "Italian": "it", "Dutch": "nl", "Turkish": "tr"
-}
-
-# Hugging Face Translation Models for Chatbot
-TRANSLATION_MODELS = {
-    "en-ta": "Helsinki-NLP/opus-mt-en-ta", "ta-en": "Helsinki-NLP/opus-mt-ta-en",
-    "en-es": "Helsinki-NLP/opus-mt-en-es", "es-en": "Helsinki-NLP/opus-mt-es-en",
-    "en-ar": "Helsinki-NLP/opus-mt-en-ar", "ar-en": "Helsinki-NLP/opus-mt-ar-en",
-    "en-fr": "Helsinki-NLP/opus-mt-en-fr", "fr-en": "Helsinki-NLP/opus-mt-fr-en",
-    "en-de": "Helsinki-NLP/opus-mt-en-de", "de-en": "Helsinki-NLP/opus-mt-de-en",
-    "en-hi": "Helsinki-NLP/opus-mt-en-hi", "hi-en": "Helsinki-NLP/opus-mt-hi-en",
-    "en-bn": "Helsinki-NLP/opus-mt-en-bn", "bn-en": "Helsinki-NLP/opus-mt-bn-en",
-    "en-ja": "Helsinki-NLP/opus-mt-en-ja", "ja-en": "Helsinki-NLP/opus-mt-ja-en",
-    "en-ko": "Helsinki-NLP/opus-mt-en-ko", "ko-en": "Helsinki-NLP/opus-mt-ko-en",
-    "en-ru": "Helsinki-NLP/opus-mt-en-ru", "ru-en": "Helsinki-NLP/opus-mt-ru-en",
-    "en-zh": "Helsinki-NLP/opus-mt-en-zh", "zh-en": "Helsinki-NLP/opus-mt-zh-en",
-    "en-pt": "Helsinki-NLP/opus-mt-en-pt", "pt-en": "Helsinki-NLP/opus-mt-pt-en",
-    "en-it": "Helsinki-NLP/opus-mt-en-it", "it-en": "Helsinki-NLP/opus-mt-it-en",
-    "en-nl": "Helsinki-NLP/opus-mt-en-nl", "nl-en": "Helsinki-NLP/opus-mt-nl-en",
-    "en-tr": "Helsinki-NLP/opus-mt-en-tr", "tr-en": "Helsinki-NLP/opus-mt-tr-en"
-}
-
 # -------------------------
 # Helpers: safe model loaders (cached)
 # -------------------------
@@ -135,44 +110,9 @@ def load_tabular_models():
     reg = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestRegressor(n_estimators=50, random_state=42))])
     return clf, reg
 
-@st.cache_resource(show_spinner=False)
-def load_translation_model(model_name):
-    """Loads a specific translation model."""
-    try:
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-        return tokenizer, model
-    except Exception as e:
-        st.error(f"Failed to load translation model '{model_name}': {e}")
-        return None, None
-
 # -------------------------
 # Utility functions
 # -------------------------
-def language_translator(text, src_lang, tgt_lang):
-    """Translates text from source to target language."""
-    if src_lang == tgt_lang:
-        return text
-    
-    model_key = f"{src_lang}-{tgt_lang}"
-    model_name = TRANSLATION_MODELS.get(model_key)
-    
-    if not model_name:
-        st.warning(f"No translation model found for {src_lang} to {tgt_lang}.")
-        return text
-        
-    tokenizer, model = load_translation_model(model_name)
-    if not tokenizer or not model:
-        return text
-
-    try:
-        tokenized = tokenizer([text], return_tensors='pt', truncation=True, padding=True)
-        out = model.generate(**tokenized, max_length=128)
-        return tokenizer.decode(out[0], skip_special_tokens=True)
-    except Exception as e:
-        st.error(f"Translation failed: {e}")
-        return text
-
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
         return {"label": "error", "score": 0.0}
@@ -217,6 +157,29 @@ def preprocess_structured_input(data: Dict[str, Any]):
         except Exception:
             vals.append(0.0)
     return np.array(vals).reshape(1, -1)
+
+# Function to call Together AI
+def call_together_api(prompt):
+    try:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {TOGETHER_API_KEY}"
+        }
+        payload = {
+            "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.7,
+            "max_tokens": 256
+        }
+        response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
+        response.raise_for_status()
+        return response.json()['choices'][0]['message']['content']
+    except requests.exceptions.RequestException as e:
+        st.error(f"Error calling Together AI API: {e}")
+        return "An error occurred while getting a response."
+    except KeyError as e:
+        st.error(f"Invalid API response format: Missing key {e}")
+        return "Failed to get a valid response from the model."
 
 # -------------------------
 # App UI: Sidebar + Navigation
@@ -455,37 +418,21 @@ elif menu == "⏱ Length of Stay Prediction":
 # Module: Clinical Notes Analysis
 # -------------------------
 elif menu == "📝 Clinical Notes Analysis":
-    st.title("Clinical Notes Analysis and Translation")
-    st.write("Analyzes clinical notes to provide insights or translates them to another language.")
+    st.title("Clinical Notes Analysis")
+    st.write("Analyzes clinical notes to provide insights.")
     
-    col1, col2 = st.columns(2)
-    with col1:
-        notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
-    with col2:
-        translation_target_lang = st.selectbox(
-            "Translate to",
-            options=list(LANGUAGE_DICT.keys()),
-            index=0,
-            key="notes_translator_lang"
-        )
+    notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
     
     if st.button("Analyze Notes"):
         if not notes.strip():
             st.warning("Please paste clinical notes to analyze.")
         else:
-            notes_language_code = LANGUAGE_DICT.get(translation_target_lang)
-            if notes_language_code == "en":
-                 res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
-                 if res['label'] == 'error':
-                     st.error("Failed to analyze notes. Check the model and input.")
-                 else:
-                     st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
+            res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
+            if res['label'] == 'error':
+                st.error("Failed to analyze notes. Check the model and input.")
             else:
-                 with st.spinner(f"Translating to {translation_target_lang}..."):
-                     # Assuming the notes are in English for translation purposes
-                     translated_text = language_translator(notes, "en", notes_language_code)
-                     st.success("Translation Result:")
-                     st.markdown(translated_text)
+                st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
+            
 
 # -------------------------
 # Module: Sentiment Analysis
@@ -509,78 +456,6 @@ elif menu == "💡 Chat Assistant":
         st.error("The Chat Assistant is not configured. Please add your Together AI API key to `secrets.toml`.")
         st.stop()
     
-    # Language selection for the chatbot
-    selected_language = st.selectbox(
-        "Select your language",
-        options=list(LANGUAGE_DICT.keys()),
-        key="chatbot_lang_selector"
-    )
-
-    # Define a callback function to handle button clicks
-    def handle_button_click(question):
-        st.session_state.messages.append({"role": "user", "content": question})
-        st.rerun()
-
     # Initialize chat history
     if "messages" not in st.session_state:
-        st.session_state["messages"] = [
-            {"role": "assistant", "content": "Hello! I am a health assistant. How can I help you today?"}
-        ]
-
-    # Display chat messages from history on app rerun
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-
-    # Display suggested questions as buttons at the top
-    st.subheader("Suggested Questions:")
-    
-    predefined_questions = [
-        "What are the symptoms of a common cold?", "How can I relieve a headache?",
-        "What are some simple ways to stay healthy?", "Tell me about the importance of hydration.",
-        "What's the difference between a virus and a bacteria?"
-    ]
-    
-    cols = st.columns(len(predefined_questions))
-    for i, question in enumerate(predefined_questions):
-        with cols[i]:
-            if st.button(question, key=f"q_{i}", help="Click to ask this question."):
-                handle_button_click(question)
-
-    # Function to call Together AI
-    def call_together_api(prompt):
-        try:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {TOGETHER_API_KEY}"
-            }
-            payload = {
-                "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.7,
-                "max_tokens": 256
-            }
-            response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            # The Together AI API response format changed, so we need to adjust
-            # to access the correct field.
-            return response.json()['choices'][0]['message']['content']
-        except requests.exceptions.RequestException as e:
-            st.error(f"Error calling Together AI API: {e}")
-            return "An error occurred while getting a response."
-        except KeyError as e:
-            st.error(f"Invalid API response format: Missing key {e}")
-            return "Failed to get a valid response from the model."
-
-    # React to user input from the chat box
-    if prompt := st.chat_input("Your message"):
-        # Translate prompt to English for the LLM
-        english_prompt = language_translator(prompt, LANGUAGE_DICT[selected_language], "en")
-        
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                # Call LLM with English prompt
-                llm_response_english = call_together_api(english_prompt)
+        st.session_state
