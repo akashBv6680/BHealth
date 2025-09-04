@@ -3,6 +3,7 @@
 
 import streamlit as st
 import os
+import sys
 import tempfile
 import uuid
 import numpy as np
@@ -23,10 +24,14 @@ from transformers import (
     AutoModel,
     MarianMTModel,
     MarianTokenizer,
+    AutoModelForSeq2SeqLM
 )
 import torchvision.transforms as T
 from PIL import Image
 from huggingface_hub import login as hf_login
+import requests
+import json
+import time
 
 # For association rules
 try:
@@ -58,10 +63,42 @@ try:
 except Exception as e:
     st.error(f"Hugging Face login failed: {e}")
 
+# Together AI API key
+try:
+    if "TOGETHER_API_KEY" in st.secrets:
+        TOGETHER_API_KEY = st.secrets["TOGETHER_API_KEY"]
+    else:
+        TOGETHER_API_KEY = None
+        st.warning("Together AI API key not found in secrets.toml.")
+except KeyError:
+    TOGETHER_API_KEY = None
+    st.warning("Together AI API key not found in secrets.toml.")
+
+TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
+
 LANGUAGE_DICT = {
     "English": "en", "Spanish": "es", "Arabic": "ar", "French": "fr", "German": "de", "Hindi": "hi",
     "Tamil": "ta", "Bengali": "bn", "Japanese": "ja", "Korean": "ko", "Russian": "ru",
     "Chinese (Simplified)": "zh-Hans", "Portuguese": "pt", "Italian": "it", "Dutch": "nl", "Turkish": "tr"
+}
+
+# Hugging Face Translation Models for Chatbot
+TRANSLATION_MODELS = {
+    "en-ta": "Helsinki-NLP/opus-mt-en-ta", "ta-en": "Helsinki-NLP/opus-mt-ta-en",
+    "en-es": "Helsinki-NLP/opus-mt-en-es", "es-en": "Helsinki-NLP/opus-mt-es-en",
+    "en-ar": "Helsinki-NLP/opus-mt-en-ar", "ar-en": "Helsinki-NLP/opus-mt-ar-en",
+    "en-fr": "Helsinki-NLP/opus-mt-en-fr", "fr-en": "Helsinki-NLP/opus-mt-fr-en",
+    "en-de": "Helsinki-NLP/opus-mt-en-de", "de-en": "Helsinki-NLP/opus-mt-de-en",
+    "en-hi": "Helsinki-NLP/opus-mt-en-hi", "hi-en": "Helsinki-NLP/opus-mt-hi-en",
+    "en-bn": "Helsinki-NLP/opus-mt-en-bn", "bn-en": "Helsinki-NLP/opus-mt-bn-en",
+    "en-ja": "Helsinki-NLP/opus-mt-en-ja", "ja-en": "Helsinki-NLP/opus-mt-ja-en",
+    "en-ko": "Helsinki-NLP/opus-mt-en-ko", "ko-en": "Helsinki-NLP/opus-mt-ko-en",
+    "en-ru": "Helsinki-NLP/opus-mt-en-ru", "ru-en": "Helsinki-NLP/opus-mt-ru-en",
+    "en-zh": "Helsinki-NLP/opus-mt-en-zh", "zh-en": "Helsinki-NLP/opus-mt-zh-en",
+    "en-pt": "Helsinki-NLP/opus-mt-en-pt", "pt-en": "Helsinki-NLP/opus-mt-pt-en",
+    "en-it": "Helsinki-NLP/opus-mt-en-it", "it-en": "Helsinki-NLP/opus-mt-it-en",
+    "en-nl": "Helsinki-NLP/opus-mt-en-nl", "nl-en": "Helsinki-NLP/opus-mt-nl-en",
+    "en-tr": "Helsinki-NLP/opus-mt-en-tr", "tr-en": "Helsinki-NLP/opus-mt-tr-en"
 }
 
 # -------------------------
@@ -77,18 +114,6 @@ def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion")
         return tokenizer, model
     except Exception as e:
         st.error(f"Failed to load text classifier model: {e}")
-        return None, None
-
-@st.cache_resource(show_spinner=False)
-def load_translation_model(src_lang="en", tgt_lang="hi"):
-    """Loads MarianMT translation model for src->tgt."""
-    pair = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
-    try:
-        tkn = MarianTokenizer.from_pretrained(pair)
-        m = MarianMTModel.from_pretrained(pair)
-        m.eval()
-        return tkn, m
-    except Exception:
         return None, None
 
 @st.cache_resource(show_spinner=False)
@@ -109,9 +134,44 @@ def load_tabular_models():
     reg = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestRegressor(n_estimators=50, random_state=42))])
     return clf, reg
 
+@st.cache_resource(show_spinner=False)
+def load_translation_model(model_name):
+    """Loads a specific translation model."""
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
+        return tokenizer, model
+    except Exception as e:
+        st.error(f"Failed to load translation model '{model_name}': {e}")
+        return None, None
+
 # -------------------------
 # Utility functions
 # -------------------------
+def language_translator(text, src_lang, tgt_lang):
+    """Translates text from source to target language."""
+    if src_lang == tgt_lang:
+        return text
+    
+    model_key = f"{src_lang}-{tgt_lang}"
+    model_name = TRANSLATION_MODELS.get(model_key)
+    
+    if not model_name:
+        st.warning(f"No translation model found for {src_lang} to {tgt_lang}.")
+        return text
+        
+    tokenizer, model = load_translation_model(model_name)
+    if not tokenizer or not model:
+        return text
+
+    try:
+        tokenized = tokenizer([text], return_tensors='pt', truncation=True, padding=True)
+        out = model.generate(**tokenized, max_length=128)
+        return tokenizer.decode(out[0], skip_special_tokens=True)
+    except Exception as e:
+        st.error(f"Translation failed: {e}")
+        return text
+
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
         return {"label": "unknown", "score": 0.0}
@@ -121,8 +181,6 @@ def text_classify(text: str, tokenizer, model, labels=None):
         with torch.no_grad():
             outputs = model(**inputs)
         
-        # The outputs from AutoModelForSequenceClassification have a .logits attribute
-        # We handle this directly to fix the AttributeError
         logits = outputs.logits
         probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
         pred = int(np.argmax(probs))
@@ -136,18 +194,6 @@ def text_classify(text: str, tokenizer, model, labels=None):
     except Exception as e:
         st.error(f"Error during text classification: {e}")
         return {"label": "error", "score": 0.0}
-
-
-def translate_text(text: str, src: str, tgt: str):
-    tkn, m = load_translation_model(src, tgt)
-    if tkn is None or m is None:
-        return "Translation model not available for this pair; returning original text."
-    
-    inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
-    with torch.no_grad():
-        translated = m.generate(**inputs)
-    out = tkn.batch_decode(translated, skip_special_tokens=True)[0]
-    return out
 
 def sentiment_text(text: str, tokenizer, model):
     if tokenizer is None or model is None:
@@ -183,7 +229,6 @@ menu = st.sidebar.radio("Select Module", [
     "🩻 Imaging Diagnostics",
     "📈 Sequence Forecasting",
     "📝 Clinical Notes Analysis",
-    "🌐 Translator",
     "💬 Sentiment Analysis",
     "💡 Chat Assistant"
 ])
@@ -242,11 +287,9 @@ elif menu == "👥 Patient Segmentation":
     if submitted:
         X_new = preprocess_structured_input(pdata)
 
-        # Generate synthetic data for clustering
         rng = np.random.RandomState(42)
         synthetic_data = rng.normal(loc=[50,25,120,80,100,180], scale=[15,5,20,10,30,40], size=(200,6))
 
-        # Combine new patient data with synthetic data for clustering
         X_all = np.vstack([synthetic_data, X_new])
 
         scaler = StandardScaler()
@@ -255,13 +298,11 @@ elif menu == "👥 Patient Segmentation":
         kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
         pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
 
-        # --- Visualization ---
         st.success(f"Assigned Cohort: **Cohort {pred_label + 1}**")
         st.write("The patient's profile is most similar to Cohort " + str(pred_label + 1) + ".")
 
         st.subheader("Patient's Position within Cohorts")
 
-        # Use PCA for 2D visualization
         pca = PCA(n_components=2)
         X_pca = pca.fit_transform(Xs)
 
@@ -273,12 +314,10 @@ elif menu == "👥 Patient Segmentation":
         fig, ax = plt.subplots(figsize=(8, 6))
         cohort_colors = {0: 'blue', 1: 'green', 2: 'purple', 'New Patient': 'red'}
 
-        # Plot each cohort
         for cohort_num in range(kmeans.n_clusters):
             subset = df_vis[df_vis['Cohort'] == str(cohort_num)]
             ax.scatter(subset['PCA1'], subset['PCA2'], alpha=0.7, label=f'Cohort {cohort_num+1}', color=cohort_colors[cohort_num])
 
-        # Plot the new patient
         new_patient_point = df_vis[df_vis['Cohort'] == 'New Patient']
         ax.scatter(new_patient_point['PCA1'], new_patient_point['PCA2'], marker='*', s=300, label='New Patient', color=cohort_colors['New Patient'], edgecolor='black')
 
@@ -288,10 +327,8 @@ elif menu == "👥 Patient Segmentation":
         ax.legend()
         st.pyplot(fig)
 
-        # --- Cohort Characteristics ---
         st.subheader("Cohort Characteristics")
 
-        # Create a DataFrame for average values of each cohort
         cols = ["Age", "BMI", "SBP", "DBP", "Glucose", "Cholesterol"]
         df_avg = pd.DataFrame(columns=cols)
 
@@ -314,17 +351,12 @@ elif menu == "🔗 Medical Associations":
     else:
         st.info("This is a simplified example. For a real-world use case, you would need a large transactional dataset of patient symptoms, conditions, and risk factors.")
 
-        # Simulate patient data as a list of lists (transactions)
         data = [
-            ['high_cholesterol', 'hypertension'],
-            ['high_glucose', 'hypertension', 'obesity'],
-            ['hypertension', 'obesity'],
-            ['high_cholesterol', 'hypertension', 'smoking'],
-            ['high_glucose', 'obesity'],
-            ['hypertension', 'smoking', 'obesity']
+            ['high_cholesterol', 'hypertension'], ['high_glucose', 'hypertension', 'obesity'],
+            ['hypertension', 'obesity'], ['high_cholesterol', 'hypertension', 'smoking'],
+            ['high_glucose', 'obesity'], ['hypertension', 'smoking', 'obesity']
         ]
 
-        # One-hot encode the data
         from mlxtend.preprocessing import TransactionEncoder
         te = TransactionEncoder()
         te_ary = te.fit(data).transform(data)
@@ -333,12 +365,10 @@ elif menu == "🔗 Medical Associations":
         st.subheader("Simulated Patient Data (One-Hot Encoded)")
         st.dataframe(df_trans)
 
-        # Find frequent itemsets
         frequent_itemsets = apriori(df_trans, min_support=0.5, use_colnames=True)
         st.subheader("Frequent Itemsets (Support >= 0.5)")
         st.dataframe(frequent_itemsets)
 
-        # Generate association rules
         rules = association_rules(frequent_itemsets, metric="confidence", min_confidence=0.7)
         st.subheader("Generated Association Rules (Confidence >= 0.7)")
         st.dataframe(rules.sort_values(by="lift", ascending=False))
@@ -361,14 +391,12 @@ elif menu == "🩻 Imaging Diagnostics":
         @st.cache_resource
         def dummy_diagnose_image(image):
             """A placeholder function for image diagnosis."""
-            # Simulate a diagnosis process
             diag = np.random.choice(["No Anomaly Detected", "Pneumonia Detected", "Fracture Identified", "Mass Detected"], p=[0.7, 0.15, 0.1, 0.05])
             confidence = np.random.uniform(0.7, 0.99)
             return {"diagnosis": diag, "confidence": confidence}
 
         if st.button("Run Diagnosis"):
             with st.spinner("Analyzing image..."):
-                # Pass the image to the dummy function
                 result = dummy_diagnose_image(uploaded_file)
                 st.success(f"Diagnosis Result: **{result['diagnosis']}** (Confidence: {result['confidence']:.2f})")
                 
@@ -388,7 +416,6 @@ elif menu == "📈 Sequence Forecasting":
         noise_level = st.slider("Noise level", 0.0, 1.0, 0.1)
 
     if st.button("Generate Data and Predict"):
-        # Generate synthetic time-series data
         np.random.seed(42)
         trend = np.linspace(50, 80, num_points)
         noise = np.random.normal(0, noise_level * 10, num_points)
@@ -402,7 +429,6 @@ elif menu == "📈 Sequence Forecasting":
         st.subheader("Generated Time-Series Data")
         st.line_chart(df_seq.set_index("Time"))
 
-        # Simple prediction based on the last two points
         last_two = data[-2:]
         prediction = last_two[1] + (last_two[1] - last_two[0])
 
@@ -419,7 +445,6 @@ elif menu == "⏱ Length of Stay Prediction":
     if submitted:
         los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
         
-        # This line rounds the prediction to the nearest whole number
         los_est_rounded = int(round(los_est))
         
         st.success(f"Predicted length of stay: **{los_est_rounded} days**")
@@ -429,44 +454,37 @@ elif menu == "⏱ Length of Stay Prediction":
 # Module: Clinical Notes Analysis
 # -------------------------
 elif menu == "📝 Clinical Notes Analysis":
-    st.title("Clinical Notes Analysis")
-    st.write("Analyzes clinical notes to provide insights. The current model identifies emotional tone.")
-    notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
+    st.title("Clinical Notes Analysis and Translation")
+    st.write("Analyzes clinical notes to provide insights or translates them to another language.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
+    with col2:
+        translation_target_lang = st.selectbox(
+            "Translate to",
+            options=list(LANGUAGE_DICT.keys()),
+            index=0,
+            key="notes_translator_lang"
+        )
+    
     if st.button("Analyze Notes"):
         if not notes.strip():
             st.warning("Please paste clinical notes to analyze.")
         else:
-            # We use a model that is suitable for sequence classification and outputs logits
-            # The previous version had an issue with the model.
-            res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
-            if res['label'] == 'error':
-                 st.error("Failed to analyze notes. Check the model and input.")
+            notes_language_code = LANGUAGE_DICT.get(translation_target_lang)
+            if notes_language_code == "en":
+                 res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
+                 if res['label'] == 'error':
+                     st.error("Failed to analyze notes. Check the model and input.")
+                 else:
+                     st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
             else:
-                 st.success(f"Analysis: The note has a primary tone of **{res['label']}** (Confidence: {res['score']:.2f}).")
-
-
-# -------------------------
-# Module: Translator
-# -------------------------
-elif menu == "🌐 Translator":
-    st.title("Translator")
-    st.write("Translate clinical or patient-facing text between different languages.")
-    col1, col2 = st.columns(2)
-    with col1:
-        src_lang = st.selectbox("Source Language", list(LANGUAGE_DICT.keys()), index=0)
-    with col2:
-        tgt_lang = st.selectbox("Target Language", list(LANGUAGE_DICT.keys()), index=1)
-    
-    text_to_trans = st.text_area("Text to translate", "Please describe your symptoms and any medications you are taking.", key="translator_input")
-    
-    if st.button("Translate"):
-        src_code = LANGUAGE_DICT.get(src_lang, "en")
-        tgt_code = LANGUAGE_DICT.get(tgt_lang, "en")
-        
-        with st.spinner("Translating..."):
-            translated_text = translate_text(text_to_trans, src_code, tgt_code)
-            st.success("Translated Text:")
-            st.write(translated_text)
+                 with st.spinner(f"Translating to {translation_target_lang}..."):
+                     # Assuming the notes are in English for translation purposes
+                     translated_text = language_translator(notes, "en", notes_language_code)
+                     st.success("Translation Result:")
+                     st.markdown(translated_text)
 
 # -------------------------
 # Module: Sentiment Analysis
@@ -484,47 +502,92 @@ elif menu == "💬 Sentiment Analysis":
 # -------------------------
 elif menu == "💡 Chat Assistant":
     st.title("Health Chat Assistant")
-    st.write("Ask questions and get information from a language model assistant.")
-    
-    try:
-        together.api_key = st.secrets["TOGETHER_API_KEY"]
-    except KeyError:
-        st.error("Together API key not found in secrets.toml.")
-        together = None
+    st.write("Ask a health-related question or select from the suggestions below.")
 
+    if not TOGETHER_API_KEY:
+        st.error("The Chat Assistant is not configured. Please add your Together AI API key to `secrets.toml`.")
+        st.stop()
+    
+    # Language selection for the chatbot
+    selected_language = st.selectbox(
+        "Select your language",
+        options=list(LANGUAGE_DICT.keys()),
+        key="chatbot_lang_selector"
+    )
+
+    # Define a callback function to handle button clicks
+    def handle_button_click(question):
+        st.session_state.messages.append({"role": "user", "content": question})
+        st.rerun()
+
+    # Initialize chat history
     if "messages" not in st.session_state:
         st.session_state["messages"] = [
             {"role": "assistant", "content": "Hello! I am a health assistant. How can I help you today?"}
         ]
 
+    # Display chat messages from history on app rerun
     for msg in st.session_state.messages:
-        st.chat_message(msg["role"]).write(msg["content"])
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
 
+    # Display suggested questions as buttons at the top
+    st.subheader("Suggested Questions:")
+    
+    predefined_questions = [
+        "What are the symptoms of a common cold?", "How can I relieve a headache?",
+        "What are some simple ways to stay healthy?", "Tell me about the importance of hydration.",
+        "What's the difference between a virus and a bacteria?"
+    ]
+    
+    cols = st.columns(len(predefined_questions))
+    for i, question in enumerate(predefined_questions):
+        with cols[i]:
+            if st.button(question, key=f"q_{i}", help="Click to ask this question."):
+                handle_button_click(question)
+
+    # Function to call Together AI
+    def call_together_api(prompt):
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {TOGETHER_API_KEY}"
+            }
+            payload = {
+                "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.7,
+                "max_tokens": 256
+            }
+            response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
+            response.raise_for_status()
+            return response.json()['choices'][0]['text']
+        except requests.exceptions.RequestException as e:
+            st.error(f"Error calling Together AI API: {e}")
+            return "An error occurred while getting a response."
+        except KeyError:
+            st.error("Invalid API response format.")
+            return "Failed to get a valid response from the model."
+
+    # React to user input from the chat box
     if prompt := st.chat_input("Your message"):
-        if not together:
-            st.chat_message("assistant").write("The chat assistant is not configured.")
-            st.stop()
+        # Translate prompt to English for the LLM
+        english_prompt = language_translator(prompt, LANGUAGE_DICT[selected_language], "en")
         
         st.session_state.messages.append({"role": "user", "content": prompt})
         st.chat_message("user").write(prompt)
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                try:
-                    # Create a prompt with the chat history for the LLM
-                    history = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
-                    
-                    # Use a powerful instruct model like Mixtral
-                    response = together.Complete.create(
-                        prompt=f"[INST] You are a helpful health assistant. Answer the user's question. \n\n {history} \n\n Assistant: [/INST]",
-                        model="mistralai/Mixtral-8x7B-Instruct-v0.1"
-                    )
-                    
-                    full_response = response['choices'][0]['text']
-                    st.session_state.messages.append({"role": "assistant", "content": full_response})
-                    st.write(full_response)
-                except together.exceptions.InvalidRequestError as e:
-                    st.error("Error: Invalid API request. Please check your API key and model name.")
-                    st.write(f"Details: {e}")
-                except Exception as e:
-                    st.error(f"Chatbot failed: {e}")
+                # Call LLM with English prompt
+                llm_response_english = call_together_api(english_prompt)
+                
+                # Translate LLM response back to the selected language
+                final_response = language_translator(llm_response_english, "en", LANGUAGE_DICT[selected_language])
+                
+                # Add a disclaimer at the end of the response
+                disclaimer = "\n\n**Disclaimer:** This information is for general knowledge only and not a substitute for professional medical advice."
+                final_response_with_disclaimer = final_response + disclaimer
+                
+                st.session_state.messages.append({"role": "assistant", "content": final_response_with_disclaimer})
+                st.write(final_response_with_disclaimer)
