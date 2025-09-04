@@ -116,37 +116,26 @@ def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
         return {"label": "unknown", "score": 0.0}
     
-    # Check if a model is suitable for sequence classification
-    if not hasattr(model, 'logits'):
-        # Corrected logic to handle models that don't directly output logits
-        try:
-            inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-            with torch.no_grad():
-                outputs = model(**inputs)
-            if hasattr(outputs, 'logits'):
-                logits = outputs.logits
-            else:
-                # Fallback for models with different output formats
-                st.error("Model output format not supported. Could not find 'logits'.")
-                return {"label": "error", "score": 0.0}
-        except Exception as e:
-            st.error(f"Error during text classification: {e}")
-            return {"label": "error", "score": 0.0}
-    else:
-        # Original logic for models that directly output logits
+    try:
         inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
         with torch.no_grad():
             outputs = model(**inputs)
+        
+        # The outputs from AutoModelForSequenceClassification have a .logits attribute
+        # We handle this directly to fix the AttributeError
         logits = outputs.logits
-
-    probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
-    pred = int(np.argmax(probs))
+        probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
+        pred = int(np.argmax(probs))
     
-    if labels:
-        lbl = labels[pred]
-    else:
-        lbl = str(pred)
-    return {"label": lbl, "score": float(probs[pred])}
+        if labels:
+            lbl = labels[pred]
+        else:
+            lbl = str(pred)
+        return {"label": lbl, "score": float(probs[pred])}
+    
+    except Exception as e:
+        st.error(f"Error during text classification: {e}")
+        return {"label": "error", "score": 0.0}
 
 
 def translate_text(text: str, src: str, tgt: str):
@@ -511,7 +500,7 @@ elif menu == "💡 Chat Assistant":
     for msg in st.session_state.messages:
         st.chat_message(msg["role"]).write(msg["content"])
 
-    if prompt := st.chat_input():
+    if prompt := st.chat_input("Your message"):
         if not together:
             st.chat_message("assistant").write("The chat assistant is not configured.")
             st.stop()
@@ -522,12 +511,20 @@ elif menu == "💡 Chat Assistant":
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    chat_completion = together.Complete.create(
-                        prompt=prompt,
+                    # Create a prompt with the chat history for the LLM
+                    history = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
+                    
+                    # Use a powerful instruct model like Mixtral
+                    response = together.Complete.create(
+                        prompt=f"[INST] You are a helpful health assistant. Answer the user's question. \n\n {history} \n\n Assistant: [/INST]",
                         model="mistralai/Mixtral-8x7B-Instruct-v0.1"
                     )
-                    full_response = chat_completion['choices'][0]['text']
+                    
+                    full_response = response['choices'][0]['text']
                     st.session_state.messages.append({"role": "assistant", "content": full_response})
                     st.write(full_response)
+                except together.exceptions.InvalidRequestError as e:
+                    st.error("Error: Invalid API request. Please check your API key and model name.")
+                    st.write(f"Details: {e}")
                 except Exception as e:
                     st.error(f"Chatbot failed: {e}")
