@@ -24,24 +24,7 @@ from transformers import (
     MarianMTModel,
     MarianTokenizer,
 )
-import torchvision.transforms as T
-from PIL import Image
-from huggingface_hub import login as hf_login
 
-# For association rules
-try:
-    from mlxtend.frequent_patterns import apriori, association_rules
-except ImportError:
-    apriori = None
-    association_rules = None
-    st.warning("mlxtend not found. Medical Associations module will not function.")
-
-# For chat assistant
-try:
-    import together
-except ImportError:
-    together = None
-    st.warning("together not found. Chat Assistant module will not function.")
 
 # -------------------------
 # App config
