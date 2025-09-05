@@ -395,4 +395,320 @@ menu = st.sidebar.radio("Select Module", [
 # Initialize shared resources
 text_tok, text_model = load_text_classifier()
 sent_tok, sent_model = load_sentiment_model()
-demo_clf, demo_reg = load_tabular_
+demo_clf, demo_reg = load_tabular_models()
+if menu == "🧠 RAG Chatbot":
+    if 'db_client' not in st.session_state or 'model' not in st.session_state:
+        st.session_state.db_client, st.session_state.model = initialize_rag_dependencies()
+        # Automatically load the default knowledge base
+        with st.spinner("Loading and processing default knowledge base..."):
+            documents = split_documents(KNOWLEDGE_BASE_TEXT)
+            process_and_store_documents(documents)
+
+# -------------------------
+# Common patient form fields (used across pages)
+# -------------------------
+def patient_input_form(key_prefix="p"):
+    with st.form(key=f"form_{key_prefix}"):
+        col1, col2 = st.columns(2)
+        with col1:
+            age = st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"{key_prefix}_gender")
+            bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0, key=f"{key_prefix}_bmi")
+            sbp = st.number_input("Systolic BP", min_value=60, max_value=250, value=120, key=f"{key_prefix}_sbp")
+        with col2:
+            dbp = st.number_input("Diastolic BP", min_value=40, max_value=160, value=80, key=f"{key_prefix}_dbp")
+            glucose = st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
+            cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=100, max_value=500, value=180, key=f"{key_prefix}_cholesterol")
+            smoker = st.selectbox("Smoker", ["No", "Yes"], index=0, key=f"{key_prefix}_smoker")
+        submitted = st.form_submit_button("Run Analysis")
+    data = {
+        "age": int(age), "gender": gender, "bmi": float(bmi), "sbp": float(sbp), "dbp": float(dbp),
+        "glucose": float(glucose), "cholesterol": float(cholesterol), "smoker": smoker == "Yes"
+    }
+    return submitted, data
+
+# -------------------------
+# Module: Risk Stratification
+# -------------------------
+if menu == "🧑‍⚕️ Risk Stratification":
+    st.title("Risk Stratification")
+    st.write("Predict a patient's risk level based on key health indicators.")
+    submitted, pdata = patient_input_form("risk")
+    if submitted:
+        score = 0
+        score += (pdata['age'] >= 60) * 2 + (45 <= pdata['age'] < 60) * 1
+        score += (pdata['bmi'] >= 30) * 2 + (25 <= pdata['bmi'] < 30) * 1
+        score += (pdata['sbp'] >= 140) * 2 + (130 <= pdata['sbp'] < 140) * 1
+        score += (pdata['glucose'] >= 126) * 2 + (110 <= pdata['glucose'] < 126) * 1
+        score += (1 if pdata['smoker'] else 0)
+        label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
+        st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
+
+# -------------------------
+# Other modules follow...
+# ... (all other modules from the original script) ...
+# -------------------------
+
+# -------------------------
+# Module: Length of Stay Prediction
+# -------------------------
+elif menu == "⏱ Length of Stay Prediction":
+    st.title("Length of Stay Prediction")
+    st.write("Predicts the expected hospital length of stay (in days) for a patient.")
+    submitted, pdata = patient_input_form("los")
+    if submitted:
+        los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
+        los_est_rounded = int(round(los_est))
+        st.success(f"Predicted length of stay: *{los_est_rounded} days*")
+        st.info("The prediction is based on a simplified model.")
+
+# -------------------------
+# Module: Patient Segmentation
+# -------------------------
+elif menu == "👥 Patient Segmentation":
+    st.title("Patient Segmentation")
+    st.write("Assigns a patient to a distinct health cohort.")
+    submitted, pdata = patient_input_form("seg")
+    if submitted:
+        X_new = preprocess_structured_input(pdata)
+        rng = np.random.RandomState(42)
+        synthetic_data = rng.normal(loc=[50,25,120,80,100,180], scale=[15,5,20,10,30,40], size=(200,6))
+        X_all = np.vstack([synthetic_data, X_new])
+        scaler = StandardScaler()
+        Xs = scaler.fit_transform(X_all)
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
+        pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
+        st.success(f"Assigned Cohort: *Cohort {pred_label + 1}*")
+        st.write("The patient's profile is most similar to Cohort " + str(pred_label + 1) + ".")
+        st.subheader("Patient's Position within Cohorts")
+        pca = PCA(n_components=2)
+        X_pca = pca.fit_transform(Xs)
+        df_vis = pd.DataFrame(X_pca, columns=['PCA1', 'PCA2'])
+        df_vis['Cohort'] = kmeans.labels_
+        df_vis['Cohort'] = df_vis['Cohort'].astype(str)
+        df_vis.loc[len(df_vis)-1, 'Cohort'] = 'New Patient'
+        fig, ax = plt.subplots(figsize=(8, 6))
+        cohort_colors = {0: 'blue', 1: 'green', 2: 'purple', 'New Patient': 'red'}
+        for cohort_num in range(kmeans.n_clusters):
+            subset = df_vis[df_vis['Cohort'] == str(cohort_num)]
+            ax.scatter(subset['PCA1'], subset['PCA2'], alpha=0.7, label=f'Cohort {cohort_num+1}', color=cohort_colors[cohort_num])
+        new_patient_point = df_vis[df_vis['Cohort'] == 'New Patient']
+        ax.scatter(new_patient_point['PCA1'], new_patient_point['PCA2'], marker='*', s=300, label='New Patient', color=cohort_colors['New Patient'], edgecolor='black')
+        ax.set_title("Patient Cohorts (2D PCA Visualization)")
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+        ax.legend()
+        st.pyplot(fig)
+        st.subheader("Cohort Characteristics")
+        cols = ["Age", "BMI", "SBP", "DBP", "Glucose", "Cholesterol"]
+        df_avg = pd.DataFrame(columns=cols)
+        for cohort_num in range(kmeans.n_clusters):
+            cluster_indices = np.where(kmeans.labels_ == cohort_num)[0]
+            avg_vals = np.mean(X_all[cluster_indices], axis=0)
+            df_avg.loc[f"Cohort {cohort_num+1}"] = avg_vals
+        st.dataframe(df_avg.style.format("{:.2f}"))
+        st.write("This table shows the average values for each key metric in each cohort.")
+
+# -------------------------
+# Module: Imaging Diagnostics
+# -------------------------
+elif menu == "🩻 Imaging Diagnostics":
+    st.title("Imaging Diagnostics")
+    st.write("Simulates medical image analysis using a dummy model.")
+    st.info("This is a placeholder module.")
+    uploaded_file = st.file_uploader("Upload a medical image (e.g., X-ray)", type=["png", "jpg", "jpeg"])
+    if uploaded_file:
+        st.image(uploaded_file, caption='Uploaded Image', use_column_width=True)
+        @st.cache_resource
+        def dummy_diagnose_image(image):
+            diag = np.random.choice(["No Anomaly Detected", "Pneumonia Detected", "Fracture Identified", "Mass Detected"], p=[0.7, 0.15, 0.1, 0.05])
+            confidence = np.random.uniform(0.7, 0.99)
+            return {"diagnosis": diag, "confidence": confidence}
+        if st.button("Run Diagnosis"):
+            with st.spinner("Analyzing image..."):
+                result = dummy_diagnose_image(uploaded_file)
+                st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
+
+# -------------------------
+# Module: Sequence Forecasting
+# -------------------------
+elif menu == "📈 Sequence Forecasting":
+    st.title("Sequence Forecasting")
+    st.write("Predicts a patient's next health metric value based on a time-series of past data.")
+    st.info("This is a simplified example.")
+    col1, col2 = st.columns(2)
+    with col1:
+        num_points = st.slider("Number of data points to generate", 5, 50, 15)
+    with col2:
+        noise_level = st.slider("Noise level", 0.0, 1.0, 0.1)
+    if st.button("Generate Data and Predict"):
+        np.random.seed(42)
+        trend = np.linspace(50, 80, num_points)
+        noise = np.random.normal(0, noise_level * 10, num_points)
+        data = trend + noise
+        df_seq = pd.DataFrame({"Time": range(1, num_points + 1), "Metric Value": data})
+        st.subheader("Generated Time-Series Data")
+        st.line_chart(df_seq.set_index("Time"))
+        last_two = data[-2:]
+        prediction = last_two[1] + (last_two[1] - last_two[0])
+        st.success(f"Based on the trend, the predicted next value is: *{prediction:.2f}*")
+        st.write("This prediction is made using a simple linear extrapolation.")
+
+# -------------------------
+# Module: Clinical Notes Analysis
+# -------------------------
+elif menu == "📝 Clinical Notes Analysis":
+    st.title("Clinical Notes Analysis")
+    st.write("Analyzes clinical notes to provide insights.")
+    notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
+    if st.button("Analyze Notes"):
+        if not notes.strip():
+            st.warning("Please paste clinical notes to analyze.")
+        else:
+            res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
+            if res['label'] == 'error':
+                 st.error("Failed to analyze notes.")
+            else:
+                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
+
+# -------------------------
+# Module: Translator
+# -------------------------
+elif menu == "🌐 Translator":
+    st.title("Translator")
+    st.write("Translate clinical or patient-facing text between different languages.")
+    col1, col2 = st.columns(2)
+    with col1:
+        src_lang = st.selectbox("Source Language", list(LANGUAGE_DICT.keys()), index=0)
+    with col2:
+        tgt_lang = st.selectbox("Target Language", list(LANGUAGE_DICT.keys()), index=1)
+    
+    text_to_trans = st.text_area("Text to translate", "Please describe your symptoms and any medications you are taking.", key="translator_input")
+    
+    if st.button("Translate"):
+        src_code = LANGUAGE_DICT.get(src_lang, "en")
+        tgt_code = LANGUAGE_DICT.get(tgt_lang, "en")
+        
+        with st.spinner("Translating..."):
+            translated_text = translate_text(text_to_trans, src_code, tgt_code)
+            st.success("Translated Text:")
+            st.write(translated_text)
+
+# -------------------------
+# Module: Sentiment Analysis
+# -------------------------
+elif menu == "💬 Sentiment Analysis":
+    st.title("Patient Feedback Sentiment Analysis")
+    st.write("Analyzes patient feedback to determine the sentiment.")
+    patient_feedback = st.text_area("Patient Feedback", "The nurse was very helpful, but the wait time was too long.", key="sentiment_input")
+    if st.button("Analyze Sentiment"):
+        if not patient_feedback.strip():
+            st.warning("Please provide some feedback to analyze.")
+        else:
+            sentiment_result = sentiment_text(patient_feedback, sent_tok, sent_model)
+            if sentiment_result['label'] == 'unknown':
+                st.error("Sentiment analysis model could not be loaded. Check your dependencies.")
+            else:
+                st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
+
+# -------------------------
+# Module: Together Chat Assistant
+# -------------------------
+elif menu == "💡 Together Chat Assistant":
+    st.title("Together AI Chat Assistant")
+    st.write("Ask questions and get information from a language model assistant.")
+    
+    if not TOGETHER_API_KEY:
+        st.error("Together AI API key is not configured. Please add it to `secrets.toml`.")
+    else:
+        try:
+            import together
+            together.api_key = TOGETHER_API_KEY
+        except Exception as e:
+            st.error(f"Together AI library initialization failed: {e}")
+            together = None
+
+    if "messages_together" not in st.session_state:
+        st.session_state["messages_together"] = [
+            {"role": "assistant", "content": "Hello! I am a general health assistant. How can I help you today?"}
+        ]
+
+    for msg in st.session_state.messages_together:
+        st.chat_message(msg["role"]).write(msg["content"])
+
+    if prompt := st.chat_input("Ask me anything about general health..."):
+        if not together:
+            st.chat_message("assistant").write("The chat assistant is not configured.")
+            st.stop()
+        
+        st.session_state.messages_together.append({"role": "user", "content": prompt})
+        st.chat_message("user").write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    chat_completion = together.Complete.create(
+                        prompt=prompt,
+                        model="mistralai/Mixtral-8x7B-Instruct-v0.1"
+                    )
+                    full_response = chat_completion['choices'][0]['text']
+                    st.session_state.messages_together.append({"role": "assistant", "content": full_response})
+                    st.write(full_response)
+                except Exception as e:
+                    st.error(f"Chatbot failed: {e}")
+
+# -------------------------
+# NEW Module: RAG Chatbot
+# -------------------------
+elif menu == "🧠 RAG Chatbot":
+    st.title("Health RAG Chatbot")
+    st.write("Ask questions about specific medical conditions. This chatbot is augmented with a knowledge base.")
+
+    # Sidebar for RAG configuration and history
+    with st.sidebar:
+        st.markdown("---")
+        st.subheader("RAG Settings")
+        st.session_state.selected_language = st.selectbox(
+            "Select a Language for response",
+            options=list(LANGUAGE_DICT.keys()),
+            key="rag_language_selector"
+        )
+        if st.button("New Chat", key="rag_new_chat"):
+            st.session_state.messages_rag = []
+            clear_chroma_data()
+            st.session_state.chat_history = {}
+            st.session_state.current_chat_id = None
+            st.experimental_rerun()
+        
+    # Initialize RAG chatbot state
+    if 'messages_rag' not in st.session_state:
+        st.session_state.messages_rag = []
+    
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = {}
+    if 'current_chat_id' not in st.session_state:
+        st.session_state.current_chat_id = str(uuid.uuid4())
+        st.session_state.chat_history[st.session_state.current_chat_id] = {
+            'messages': st.session_state.messages_rag,
+            'title': "New Chat",
+            'date': datetime.now()
+        }
+
+    # Display chat messages
+    for message in st.session_state.messages_rag:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    # Handle user input
+    if prompt := st.chat_input("Ask about the health conditions..."):
+        st.session_state.messages_rag.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                selected_language_code = LANGUAGE_DICT[st.session_state.selected_language]
+                response = rag_pipeline(prompt, selected_language_code)
+                st.markdown(response)
+
+        st.session_state.messages_rag.append({"role": "assistant", "content": response})
