@@ -21,6 +21,7 @@ from PIL import Image
 from huggingface_hub import login as hf_login
 
 # This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
+# It allows ChromaDB to run properly in environments like Streamlit Cloud.
 try:
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules['pysqlite3']
@@ -54,7 +55,7 @@ try:
 except ImportError:
     apriori = None
     association_rules = None
-    st.warning("mlxtend not found. Medical Associations module will not function.")
+    # st.warning("mlxtend not found. Medical Associations module will not function.")
 
 # For Gemini AI chat assistant (replacing Together AI)
 try:
@@ -63,7 +64,7 @@ try:
 except ImportError:
     genai = None
     APIError = None
-    st.warning("google-genai not found. Gemini Chat Assistant and RAG modules will not function.")
+    # st.warning("google-genai not found. Gemini Chat Assistant and RAG modules will not function.")
 
 
 # -------------------------
@@ -75,12 +76,13 @@ st.set_page_config(page_title="HealthAI Suite", page_icon="🩺", layout="wide")
 try:
     if "HF_ACCESS_TOKEN" in st.secrets:
         hf_login(token=st.secrets["HF_ACCESS_TOKEN"], add_to_git_credential=False)
-    else:
-        st.warning("Hugging Face access token not found in secrets.toml.")
+    # else:
+    #     st.warning("Hugging Face access token not found in secrets.toml.")
 except Exception as e:
-    st.error(f"Hugging Face login failed: {e}")
+    # st.error(f"Hugging Face login failed: {e}")
+    pass
 
-# Gemini AI config (REPLACING Together AI config)
+# Gemini AI config
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
@@ -129,17 +131,20 @@ Osteoarthritis is the most common form of arthritis, affecting millions of peopl
 def initialize_rag_dependencies():
     """Initializes ChromaDB client, SentenceTransformer model, and Gemini client."""
     try:
+        # 1. Initialize ChromaDB client in a temp directory
         db_path = tempfile.mkdtemp()
         db_client = chromadb.PersistentClient(path=db_path)
-        # Explicitly load the model to the CPU
+        
+        # 2. Load Embedding Model
+        # Explicitly load the model to the CPU for broader compatibility
         model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
         
-        # Initialize Gemini Client
+        # 3. Initialize Gemini Client
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
         else:
             gemini_client = None
-            st.error("Gemini AI client not initialized. Check API key and dependencies.")
+            # st.error("Gemini AI client not initialized. Check API key and dependencies.")
 
         return db_client, model, gemini_client
     except Exception as e:
@@ -147,7 +152,6 @@ def initialize_rag_dependencies():
         st.stop()
 
 
-# The rest of the load functions remain unchanged...
 @st.cache_resource(show_spinner=False)
 def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
     """Loads a text classification model."""
@@ -157,7 +161,7 @@ def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion")
         model.eval()
         return tokenizer, model
     except Exception as e:
-        st.error(f"Failed to load text classifier model: {e}")
+        # st.error(f"Failed to load text classifier model: {e}")
         return None, None
 
 @st.cache_resource(show_spinner=False)
@@ -191,7 +195,7 @@ def load_tabular_models():
     return clf, reg
 
 # -------------------------
-# Utility functions (unchanged)
+# Utility functions
 # -------------------------
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
@@ -210,7 +214,7 @@ def text_classify(text: str, tokenizer, model, labels=None):
             lbl = str(pred)
         return {"label": lbl, "score": float(probs[pred])}
     except Exception as e:
-        st.error(f"Error during text classification: {e}")
+        # st.error(f"Error during text classification: {e}")
         return {"label": "error", "score": 0.0}
 
 def translate_text(text: str, src: str, tgt: str):
@@ -247,19 +251,25 @@ def preprocess_structured_input(data: Dict[str, Any]):
     return np.array(vals).reshape(1, -1)
 
 # -------------------------
-# RAG/Gemini functions (REPLACED Together AI)
+# RAG/Gemini functions
 # -------------------------
 def get_collection():
     """Retrieves or creates the ChromaDB collection."""
+    # Ensure dependencies are initialized before trying to access the client
+    if 'db_client' not in st.session_state:
+        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client = initialize_rag_dependencies()
     return st.session_state.db_client.get_or_create_collection(
         name=COLLECTION_NAME
     )
 
 def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful health assistant.", max_retries=5):
-    """Calls the Gemini API with exponential backoff for retries (Replacing call_together_api)."""
+    """Calls the Gemini API with exponential backoff for retries."""
+    # Ensure dependencies are initialized before trying to access the client
     if not st.session_state.get('gemini_client'):
-        st.error("Gemini AI client is not configured.")
-        return {"error": "API Client not found."}
+        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client = initialize_rag_dependencies()
+
+    if not st.session_state.get('gemini_client'):
+        return {"error": "API Client not found. Check GEMINI_API_KEY in secrets.toml."}
     
     retry_delay = 1
     for i in range(max_retries):
@@ -278,31 +288,18 @@ def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="Y
         
         except APIError as e:
             if "RESOURCE_EXHAUSTED" in str(e):
-                st.warning(f"Rate limit or quota issue. Retrying in {retry_delay} seconds...")
+                # st.warning(f"Rate limit or quota issue. Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 retry_delay *= 2
             elif "API_KEY_INVALID" in str(e):
-                st.error("Invalid API Key. Please check your Gemini API key.")
+                # st.error("Invalid API Key. Please check your Gemini API key.")
                 return {"error": "401 Unauthorized"}
             else:
-                st.error(f"Failed to call API after {i+1} retries: {e}")
+                # st.error(f"Failed to call API after {i+1} retries: {e}")
                 return {"error": str(e)}
         except Exception as e:
-            st.error(f"An error occurred during the API call: {e}")
+            # st.error(f"An error occurred during the API call: {e}")
             return {"error": str(e)}
-
-
-def clear_chroma_data():
-    """Clears all data from the ChromaDB collection."""
-    try:
-        if COLLECTION_NAME in [col.name for col in st.session_state.db_client.list_collections()]:
-            st.session_state.db_client.delete_collection(name=COLLECTION_NAME)
-    except Exception as e:
-        st.error(f"Error clearing collection: {e}")
-
-# The following RAG utility functions (split_documents, is_valid_github_raw_url, 
-# process_and_store_documents, retrieve_documents, and rag_pipeline) are kept 
-# exactly as in the last successful version, per your request.
 
 def split_documents(text_data, chunk_size=500, chunk_overlap=100):
     """Splits a single string of text into chunks."""
@@ -313,11 +310,6 @@ def split_documents(text_data, chunk_size=500, chunk_overlap=100):
         is_separator_regex=False,
     )
     return splitter.split_text(text_data)
-
-def is_valid_github_raw_url(url):
-    """Checks if a URL is a valid GitHub raw file URL."""
-    pattern = r"https://raw\.githubusercontent\.com/[\w-]+/[\w-]+/[^/]+/[\w./-]+\.(txt|md)"
-    return re.match(pattern, url) is not None
 
 def process_and_store_documents(documents):
     """
@@ -341,7 +333,6 @@ def process_and_store_documents(documents):
 def retrieve_documents(query, n_results=5):
     """
     Retrieves the most relevant documents from ChromaDB based on a query.
-    Note: ChromaDB's query returns a dict, with 'documents' being a list of lists.
     """
     collection = get_collection()
     model = st.session_state.model
@@ -351,13 +342,13 @@ def retrieve_documents(query, n_results=5):
     results = collection.query(
         query_embeddings=query_embedding,
         n_results=n_results,
-        include=['documents', 'distances'] # include distances to simulate relevance check
+        include=['documents', 'distances']
     )
     
     # Return a list of documents
     return results['documents'][0] if results['documents'] else []
 
-def rag_pipeline(query, selected_language_code):
+def rag_pipeline(query, selected_language):
     """
     Executes the RAG pipeline with an LLM fallback for out-of-context queries.
     """
@@ -365,28 +356,37 @@ def rag_pipeline(query, selected_language_code):
     if collection.count() == 0:
         return "I'm a chatbot that answers questions based on a knowledge base, which is currently empty. Please ask me general health questions instead!"
 
-    # --- RAG Step (Attempt Retrieval) ---
+    # --- RAG Step 1: Attempt Retrieval ---
     relevant_docs = retrieve_documents(query)
     
-    # --- Context Check and Fallback Logic (NEW) ---
+    # --- RAG Step 2: Context Check and Fallback Logic (The requested feature) ---
+    # If less than 3 relevant documents are found, it's considered an Out-of-Knowledge-Base query
     if len(relevant_docs) < 3: 
-        # Low number of retrieved docs suggests an out-of-KB query (OOKB)
         
         # 1. Define the polite fallback prompt for general LLM knowledge
-        system_instruction = "You are a friendly, helpful, and highly knowledgeable general health assistant. If a user asks a question, please answer it to the best of your ability. Keep your response concise. The final response MUST be in " + st.session_state.selected_language
+        # The prompt explicitly instructs the LLM to acknowledge the OOKB status first.
+        system_instruction = f"You are a friendly, helpful, and highly knowledgeable general health assistant. Answer the user's question to the best of your ability. Keep your response concise. The final response MUST be in {selected_language}."
         
-        # 2. Add a friendly OOKB message to the prompt
-        fallback_query = f"The user asked: '{query}'. Based on your general knowledge, please answer this question, but first, politely let the user know that this topic is outside your specific knowledge base. Start your answer with a phrase like: 'That's a great question! While this is outside my specialized knowledge base, I can tell you that...'"
+        fallback_query = (
+            f"The user asked: '{query}'. Based on your general knowledge, please answer this question, "
+            f"but first, **politely let the user know that this topic is outside your specific knowledge base**. "
+            f"Start your answer with a phrase like: 'That's a great question! While this is outside my specialized knowledge base, I can tell you that...'"
+        )
         
         response_json = call_gemini_api(fallback_query, system_instruction=system_instruction)
         
     else:
-        # --- RAG Success Step ---
+        # --- RAG Success Step (Use KB context) ---
         
         context = "\n".join(relevant_docs)
         
-        # The RAG prompt instructs Gemini to use the context AND respond in the target language.
-        rag_system_instruction = "You are a medical assistant. Use ONLY the provided context to answer the user's question. If the context does not contain the answer, you MUST politely state, 'I apologize, but my current knowledge base does not contain information to answer that question.' The final response MUST be in " + st.session_state.selected_language
+        # The RAG prompt instructs Gemini to use the context ONLY.
+        rag_system_instruction = (
+            "You are a medical assistant. Use ONLY the provided context to answer the user's question. "
+            "If the context does not contain the answer, you MUST politely state, "
+            "'I apologize, but my current knowledge base does not contain information to answer that question.' "
+            f"The final response MUST be in {selected_language}"
+        )
         
         prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
         
@@ -399,7 +399,7 @@ def rag_pipeline(query, selected_language_code):
         response_text = response_json['response']
         return response_text
     except KeyError:
-        st.error("Invalid API response format.")
+        # st.error("Invalid API response format.")
         return "Failed to get a valid response from the model."
 
 # -------------------------
@@ -419,29 +419,23 @@ menu = st.sidebar.radio("Select Module", [
     "🧠 RAG Chatbot"
 ])
 
-# Initialize shared resources
-text_tok, text_model = load_text_classifier()
-sent_tok, sent_model = load_sentiment_model()
-demo_clf, demo_reg = load_tabular_models()
+# Initialize session state for language selection (used by RAG)
+if 'selected_language' not in st.session_state:
+    st.session_state.selected_language = "English"
 
-# Initialization check block updated to load gemini_client
+# Initialization check block
 if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
     if 'db_client' not in st.session_state or 'model' not in st.session_state or 'gemini_client' not in st.session_state:
-        # Load all RAG/Gemini dependencies
         st.session_state.db_client, st.session_state.model, st.session_state.gemini_client = initialize_rag_dependencies()
         
-        # Only load the default knowledge base if it's the RAG Chatbot
+        # Only load the default knowledge base if it's the RAG Chatbot AND the KB is empty
         if menu == "🧠 RAG Chatbot":
-            with st.spinner("Loading and processing default knowledge base..."):
-                documents = split_documents(KNOWLEDGE_BASE_TEXT)
-                # Check if the collection is empty before adding the default KB
-                if get_collection().count() == 0:
+            if st.session_state.db_client and get_collection().count() == 0:
+                with st.spinner("Loading and processing default knowledge base..."):
+                    documents = split_documents(KNOWLEDGE_BASE_TEXT)
                     process_and_store_documents(documents)
-                else:
-                    st.toast("Default KB already loaded.", icon="ℹ️")
 
-
-# ... (Common patient form fields and other modules remain UNCHANGED) ...
+# ... (Common patient form fields) ...
 def patient_input_form(key_prefix="p"):
     with st.form(key=f"form_{key_prefix}"):
         col1, col2 = st.columns(2)
@@ -686,97 +680,50 @@ elif menu == "💡 Gemini Chat Assistant":
 
                 st.session_state.messages_gemini.append({"role": "assistant", "content": full_response})
 
-
 # -------------------------
-# Module: RAG Chatbot (Managed KB Options Removed)
+# Module: RAG Chatbot
 # -------------------------
 elif menu == "🧠 RAG Chatbot":
-    st.title("Health RAG Chatbot")
-    st.write("Ask questions about specific medical conditions. This chatbot is augmented with a knowledge base.")
+    st.title("Health RAG Chatbot 🧠")
+    st.write("A specialized assistant that answers questions based on a fixed knowledge base (KB), with a general knowledge fallback.")
 
-    if not GEMINI_API_KEY:
-        st.error("The RAG Chatbot requires the Gemini AI API key to function. Please add it to `secrets.toml` as **GEMINI_API_KEY**.")
-        st.stop()
-        
-    # Sidebar for RAG configuration and history
-    with st.sidebar:
-        st.markdown("---")
-        st.subheader("RAG Settings")
-        
-        st.session_state.selected_language = st.selectbox(
-            "Select a Language for response",
-            options=list(LANGUAGE_DICT.keys()),
-            key="rag_language_selector",
-            index=list(LANGUAGE_DICT.keys()).index(st.session_state.get("selected_language", "English"))
-        )
-        selected_language_code = LANGUAGE_DICT.get(st.session_state.selected_language, "en")
-        
-        # --- REMOVED: Manage Knowledge Base Heading and Input Fields ---
-        
-        # Status and Reset
-        st.markdown("---")
-        collection_count = get_collection().count()
-        st.info(f"Knowledge Base Chunks: **{collection_count}**")
+    # Language selection for RAG output
+    st.subheader("Configuration")
+    st.session_state.selected_language = st.selectbox(
+        "Select Response Language", 
+        list(LANGUAGE_DICT.keys()), 
+        index=0, 
+        key="rag_lang_select"
+    )
 
-        if st.button("Reset Knowledge Base", key="rag_reset_kb"):
-            clear_chroma_data()
-            st.session_state.messages_rag = [
-                {"role": "assistant", "content": "Knowledge base cleared. Reloading default documents..."}
-            ]
-            # Reload default KB
-            with st.spinner("Reloading default knowledge base..."):
-                documents = split_documents(KNOWLEDGE_BASE_TEXT)
-                process_and_store_documents(documents)
-            st.session_state.messages_rag.append(
-                {"role": "assistant", "content": "Default knowledge base reloaded. Ask me anything! 😊"}
-            )
-            st.rerun() 
+    # Display current KB status
+    kb_count = get_collection().count()
+    st.info(f"Knowledge Base Status: **{kb_count}** document chunks loaded (Default KB covers Cold, Diabetes, Hypertension, etc.)")
 
-    # --- Main Chat Interface ---
-
-    # Initialize RAG chatbot state
-    if 'messages_rag' not in st.session_state:
-        st.session_state.messages_rag = [
-            {"role": "assistant", "content": "Hello! I am your RAG Health Assistant. Ask me about the medical conditions in my knowledge base, like **Diabetes** or **Asthma**."}
+    # Initialize RAG chat history
+    if "messages_rag" not in st.session_state:
+        st.session_state["messages_rag"] = [
+            {"role": "assistant", "content": "Hello! I'm your RAG medical assistant. Ask me about conditions like Diabetes or Asthma!"}
         ]
-    
-    if 'chat_history' not in st.session_state:
-        st.session_state.chat_history = {}
-    if 'current_chat_id' not in st.session_state:
-        st.session_state.current_chat_id = str(uuid.uuid4())
-        st.session_state.chat_history[st.session_state.current_chat_id] = {
-            'messages': st.session_state.messages_rag,
-            'title': "New Chat",
-            'date': datetime.now()
-        }
 
     # Display chat messages
-    for message in st.session_state.messages_rag:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    for msg in st.session_state.messages_rag:
+        st.chat_message(msg["role"]).write(msg["content"])
 
     # Handle user input
-    if prompt := st.chat_input(f"Ask about the health conditions (response in {st.session_state.selected_language})..."):
+    if prompt := st.chat_input("Ask a health question..."):
+        if not st.session_state.get('gemini_client'):
+            st.chat_message("assistant").write("The RAG chatbot is not configured due to missing Gemini API key or dependencies.")
+            st.stop()
         
         st.session_state.messages_rag.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-        
+        st.chat_message("user").write(prompt)
+
         with st.chat_message("assistant"):
-            with st.spinner("Searching knowledge base and generating response..."):
-                selected_language_code = LANGUAGE_DICT[st.session_state.selected_language]
-                response = rag_pipeline(prompt, selected_language_code)
-                st.markdown(response)
-
-        st.session_state.messages_rag.append({"role": "assistant", "content": response})
-
-        # Update chat history (basic functionality)
-        if st.session_state.current_chat_id in st.session_state.chat_history:
-             st.session_state.chat_history[st.session_state.current_chat_id]['messages'] = st.session_state.messages_rag
-        else:
-            # Should not happen with the current initialization, but for safety
-             st.session_state.chat_history[st.session_state.current_chat_id] = {
-                'messages': st.session_state.messages_rag,
-                'title': prompt[:30] + '...',
-                'date': datetime.now()
-            }
+            with st.spinner("Retrieving context and generating response..."):
+                # Call the RAG pipeline with the LLM fallback logic
+                full_response = rag_pipeline(prompt, st.session_state.selected_language)
+                
+                st.write(full_response)
+                
+                st.session_state.messages_rag.append({"role": "assistant", "content": full_response})
