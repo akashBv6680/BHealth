@@ -300,6 +300,10 @@ def clear_chroma_data():
     except Exception as e:
         st.error(f"Error clearing collection: {e}")
 
+# The following RAG utility functions (split_documents, is_valid_github_raw_url, 
+# process_and_store_documents, retrieve_documents, and rag_pipeline) are kept 
+# exactly as in the last successful version, per your request.
+
 def split_documents(text_data, chunk_size=500, chunk_overlap=100):
     """Splits a single string of text into chunks."""
     splitter = RecursiveCharacterTextSplitter(
@@ -388,7 +392,7 @@ menu = st.sidebar.radio("Select Module", [
     "📝 Clinical Notes Analysis",
     "🌐 Translator",
     "💬 Sentiment Analysis",
-    "💡 Gemini Chat Assistant", # RENAMED
+    "💡 Gemini Chat Assistant",
     "🧠 RAG Chatbot"
 ])
 
@@ -615,7 +619,7 @@ elif menu == "💬 Sentiment Analysis":
                 st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
 
 # -------------------------
-# Module: Gemini Chat Assistant (REPLACED Together AI)
+# Module: Gemini Chat Assistant
 # -------------------------
 elif menu == "💡 Gemini Chat Assistant":
     st.title("Gemini AI Chat Assistant")
@@ -661,7 +665,7 @@ elif menu == "💡 Gemini Chat Assistant":
 
 
 # -------------------------
-# Module: RAG Chatbot (Minor API update only)
+# Module: RAG Chatbot (Managed KB Options Removed)
 # -------------------------
 elif menu == "🧠 RAG Chatbot":
     st.title("Health RAG Chatbot")
@@ -684,38 +688,8 @@ elif menu == "🧠 RAG Chatbot":
         )
         selected_language_code = LANGUAGE_DICT.get(st.session_state.selected_language, "en")
         
-        st.markdown("### Manage Knowledge Base")
+        # --- REMOVED: Manage Knowledge Base Heading and Input Fields ---
         
-        # File Uploader
-        uploaded_file = st.file_uploader("Upload a new knowledge file (.txt/.md)", type=["txt", "md"])
-        
-        # GitHub Raw URL Input
-        github_url = st.text_input("or Paste a GitHub Raw URL (.txt/.md)", placeholder="https://raw.githubusercontent.com/...")
-        
-        # Load New Documents
-        if st.button("Add Documents to KB", key="rag_add_docs"):
-            text_data_to_add = None
-            if uploaded_file is not None:
-                text_data_to_add = uploaded_file.read().decode("utf-8")
-            elif github_url and is_valid_github_raw_url(github_url):
-                try:
-                    with st.spinner(f"Downloading from {github_url}..."):
-                        response = requests.get(github_url, timeout=10)
-                        response.raise_for_status()
-                        text_data_to_add = response.text
-                except Exception as e:
-                    st.error(f"Failed to download from URL: {e}")
-            elif github_url and not is_valid_github_raw_url(github_url):
-                 st.error("Invalid GitHub raw URL. Must be a raw file ending in .txt or .md.")
-            
-            if text_data_to_add:
-                with st.spinner("Processing and storing new documents..."):
-                    new_documents = split_documents(text_data_to_add)
-                    process_and_store_documents(new_documents)
-                    st.toast(f"{len(new_documents)} new document chunks added!", icon="📚")
-            else:
-                st.info("No valid file or URL provided to add documents.")
-
         # Status and Reset
         st.markdown("---")
         collection_count = get_collection().count()
