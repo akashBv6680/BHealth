@@ -676,13 +676,13 @@ elif menu == "🧠 RAG Chatbot":
     # --- Main Chat Interface ---
     
     # Clean, concise title
-    st.markdown("## Health RAG Chatbot 🧠")
-    st.markdown("A specialized **Health Consultant AI** ")
+    st.markdown("## Health RAG AI Chatbot 🧠")
+    st.markdown("IM specialized **Health Consultant AI** ")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
         st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. How can I help clarify your health doubts today?"}
+            {"role": "assistant", "content": f"Hello! I'm your Personal AI medical assistant. How can I help clarify your health doubts today?"}
         ]
 
     # Display chat messages
