@@ -677,12 +677,12 @@ elif menu == "🧠 RAG Chatbot":
     
     # Clean, concise title
     st.markdown("## Health RAG Chatbot 🧠")
-    st.markdown("A specialized **Health Consultant AI**. It uses its fixed knowledge base (KB) first, then falls back to **Google Search** to provide comprehensive answers and **reliable external source links** for all health queries.")
+    st.markdown("A specialized **Health Consultant AI** ")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
         st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. I have a large health knowledge base (Chunks: {kb_count}), and I will **search the web for external sources** if needed. How can I help clarify your health doubts today?"}
+            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. How can I help clarify your health doubts today?"}
         ]
 
     # Display chat messages
