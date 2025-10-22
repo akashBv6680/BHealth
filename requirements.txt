@@ -12,6 +12,6 @@ torchvision
 Pillow
 scikit-learn
 transformers
-tf-keras
+tf-keras # Retained, assuming you still need it
 mlxtend
-together
+google-genai-sdk # New dependency for Gemini API
