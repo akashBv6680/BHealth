@@ -341,6 +341,7 @@ def process_and_store_documents(documents):
 def retrieve_documents(query, n_results=5):
     """
     Retrieves the most relevant documents from ChromaDB based on a query.
+    Note: ChromaDB's query returns a dict, with 'documents' being a list of lists.
     """
     collection = get_collection()
     model = st.session_state.model
@@ -349,30 +350,52 @@ def retrieve_documents(query, n_results=5):
     
     results = collection.query(
         query_embeddings=query_embedding,
-        n_results=n_results
+        n_results=n_results,
+        include=['documents', 'distances'] # include distances to simulate relevance check
     )
-    return results['documents'][0]
+    
+    # Return a list of documents
+    return results['documents'][0] if results['documents'] else []
 
 def rag_pipeline(query, selected_language_code):
-    """Executes the full RAG pipeline with a check for documents."""
+    """
+    Executes the RAG pipeline with an LLM fallback for out-of-context queries.
+    """
     collection = get_collection()
     if collection.count() == 0:
-        return "Hello! I'm a chatbot that answers questions based on a knowledge base. Please add documents before asking me anything. I'm ready when you are! 😊"
+        return "I'm a chatbot that answers questions based on a knowledge base, which is currently empty. Please ask me general health questions instead!"
 
+    # --- RAG Step (Attempt Retrieval) ---
     relevant_docs = retrieve_documents(query)
     
-    context = "\n".join(relevant_docs)
-    
-    # The prompt instructs Gemini to respond in the target language.
-    prompt = f"Using the following information, answer the user's question. The final response MUST be in {st.session_state.selected_language}. If the information is not present, state that you cannot answer. \n\nContext: {context}\n\nQuestion: {query}\n\nAnswer:"
-    
-    response_json = call_gemini_api(prompt)
+    # --- Context Check and Fallback Logic (NEW) ---
+    if len(relevant_docs) < 3: 
+        # Low number of retrieved docs suggests an out-of-KB query (OOKB)
+        
+        # 1. Define the polite fallback prompt for general LLM knowledge
+        system_instruction = "You are a friendly, helpful, and highly knowledgeable general health assistant. If a user asks a question, please answer it to the best of your ability. Keep your response concise. The final response MUST be in " + st.session_state.selected_language
+        
+        # 2. Add a friendly OOKB message to the prompt
+        fallback_query = f"The user asked: '{query}'. Based on your general knowledge, please answer this question, but first, politely let the user know that this topic is outside your specific knowledge base. Start your answer with a phrase like: 'That's a great question! While this is outside my specialized knowledge base, I can tell you that...'"
+        
+        response_json = call_gemini_api(fallback_query, system_instruction=system_instruction)
+        
+    else:
+        # --- RAG Success Step ---
+        
+        context = "\n".join(relevant_docs)
+        
+        # The RAG prompt instructs Gemini to use the context AND respond in the target language.
+        rag_system_instruction = "You are a medical assistant. Use ONLY the provided context to answer the user's question. If the context does not contain the answer, you MUST politely state, 'I apologize, but my current knowledge base does not contain information to answer that question.' The final response MUST be in " + st.session_state.selected_language
+        
+        prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
+        
+        response_json = call_gemini_api(prompt, system_instruction=rag_system_instruction)
 
     if 'error' in response_json:
         return "An error occurred while generating the response. Please try again."
     
     try:
-        # Adjusted for Gemini response structure
         response_text = response_json['response']
         return response_text
     except KeyError:
