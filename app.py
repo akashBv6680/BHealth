@@ -7,12 +7,16 @@ import sys
 import tempfile
 import uuid
 import time
+import re
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from typing import List, Dict, Any
+import torch
+import torchvision.transforms as T
+from PIL import Image
 
-# CRITICAL FIX: Ensure Pysqlite3 is used for Streamlit/ChromaDB compatibility
+# This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
 try:
     __import__('pysqlite3')
     sys.modules['sqlite3'] = sys.modules['pysqlite3']
@@ -24,7 +28,7 @@ import chromadb
 from sentence_transformers import SentenceTransformer
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Import necessary placeholders for other modules
+# Import Hugging Face models (placeholders)
 from transformers import (
     AutoTokenizer,
     AutoModelForSequenceClassification,
@@ -32,9 +36,10 @@ from transformers import (
     MarianTokenizer,
 )
 
+# For other models
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.decomposition import PCA
 
@@ -47,7 +52,7 @@ except ImportError:
     genai = None
     APIError = None
     types = None
-
+    st.warning("Google GenAI SDK not found. LLM features will not work.")
 
 # -------------------------
 # App config
@@ -70,7 +75,7 @@ LANGUAGE_DICT = {
 # -------------------------
 COLLECTION_NAME = "rag_documents"
 
-# --- MASSIVELY EXPANDED Placeholder Knowledge Base for the Chatbot ---
+# --- EXPANDED Placeholder Knowledge Base for the Chatbot ---
 KNOWLEDGE_BASE_TEXT = """
 ### Common Cold and Flu
 The common cold is a viral infection of your upper respiratory tract. Symptoms include a runny/stuffy nose, sore throat, cough, and congestion. Rest, hydration, and OTC medications are key. The flu (influenza) is more severe, often causing fever, body aches, and extreme fatigue. Antiviral drugs may be used for the flu. Cold symptoms last 7-10 days, while the flu can last longer and pose a higher risk of complications.
@@ -101,7 +106,7 @@ For minor cuts, clean the area and cover with a sterile bandage. For minor burns
 """
 
 # -------------------------
-# Helpers: RAG/Gemini Initialization
+# Helpers: RAG/Gemini Initialization (Cached Resources)
 # -------------------------
 @st.cache_resource(show_spinner=False)
 def initialize_rag_dependencies():
@@ -117,7 +122,6 @@ def initialize_rag_dependencies():
         # Initialize Gemini Client and configure Google Search Tool
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
-            # This is the correct way to enable the Google Search tool for the LLM
             google_search_tool = [types.Tool(google_search={})] 
         else:
             gemini_client = None
@@ -127,10 +131,51 @@ def initialize_rag_dependencies():
 
         return db_client, model, gemini_client, google_search_tool
     except Exception as e:
-        st.error(f"An error occurred during RAG dependency initialization: {e}. Please ensure all libraries are installed.")
+        st.error(f"An error occurred during RAG dependency initialization: {e}. Check dependencies and API Key.")
         st.stop()
 
+@st.cache_resource(show_spinner=False)
+def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
+    # ... (Hugging Face model loading for other modules)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(model_name)
+        model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        model.eval()
+        return tokenizer, model
+    except Exception as e:
+        # st.error(f"Failed to load text classifier model: {e}") # Suppress error for clean UI
+        return None, None
 
+@st.cache_resource(show_spinner=False)
+def load_translation_model(src_lang="en", tgt_lang="hi"):
+    # ... (Hugging Face model loading for other modules)
+    pair = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
+    try:
+        tkn = MarianTokenizer.from_pretrained(pair)
+        m = MarianMTModel.from_pretrained(pair)
+        m.eval()
+        return tkn, m
+    except Exception:
+        return None, None
+
+@st.cache_resource(show_spinner=False)
+def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-latest"):
+    # ... (Hugging Face model loading for other modules)
+    try:
+        tok = AutoTokenizer.from_pretrained(model_name)
+        m = AutoModelForSequenceClassification.from_pretrained(model_name)
+        m.eval()
+        return tok, m
+    except Exception:
+        return None, None
+
+@st.cache_resource(show_spinner=False)
+def load_tabular_models():
+    # ... (Scikit-learn model loading for other modules)
+    clf = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestClassifier(n_estimators=50, random_state=42))])
+    reg = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestRegressor(n_estimators=50, random_state=42))])
+    return clf, reg
+    
 # -------------------------
 # RAG/Gemini core functions
 # -------------------------
@@ -167,7 +212,6 @@ def clear_and_reload_kb():
         {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. The Knowledge Base has been reset and now contains **{kb_count}** chunks. Ask me about common health topics!"}
     ]
     st.rerun()
-
 
 def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful health assistant.", tools=None, max_retries=5):
     """Calls the Gemini API with optional tools and exponential backoff for retries."""
@@ -245,7 +289,8 @@ def rag_pipeline(query, selected_language):
     collection = get_collection()
     relevant_docs = retrieve_documents(query)
     
-    # Fallback to external search if few documents are retrieved (or KB is empty)
+    # Determine if we need to use the KB or fall back to external search
+    # Fallback if few documents are retrieved (or KB is empty)
     use_external_search = len(relevant_docs) < 3 or collection.count() == 0
 
     if use_external_search: 
@@ -296,7 +341,6 @@ def rag_pipeline(query, selected_language):
 # App UI: Sidebar + Navigation
 # -------------------------
 st.sidebar.title("HealthAI Suite")
-# CORRECTED MENU LIST
 menu = st.sidebar.radio("Select Module", [
     "🧑‍⚕️ Risk Stratification",
     "⏱ Length of Stay Prediction",
@@ -306,7 +350,7 @@ menu = st.sidebar.radio("Select Module", [
     "📝 Clinical Notes Analysis",
     "🌐 Translator",
     "💬 Sentiment Analysis",
-    "💡 Together Chat Assistant", # CORRECTED NAME
+    "💡 Together Chat Assistant", # Using the name the user provided
     "🧠 RAG Chatbot"
 ])
 
@@ -315,7 +359,6 @@ if 'selected_language' not in st.session_state:
     st.session_state.selected_language = "English"
 
 # Initialization block for RAG/Gemini dependencies and KB loading
-# Note: The 'Together Chat Assistant' uses the same Gemini/API setup as RAG
 if menu == "🧠 RAG Chatbot" or menu == "💡 Together Chat Assistant":
     if 'db_client' not in st.session_state:
         st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
@@ -328,74 +371,264 @@ if menu == "🧠 RAG Chatbot" or menu == "💡 Together Chat Assistant":
                     process_and_store_documents(documents)
                     st.toast(f"Loaded {get_collection().count()} KB chunks.", icon="📚")
 
+# Initialize shared resources for other modules
+text_tok, text_model = load_text_classifier()
+sent_tok, sent_model = load_sentiment_model()
+demo_clf, demo_reg = load_tabular_models()
+
 
 # -------------------------
-# Placeholder Functions for other modules (must be defined for the code to run)
+# Common patient form fields (used across pages)
 # -------------------------
 def patient_input_form(key_prefix="p"):
-    # Simplified form for the demo placeholders
     with st.form(key=f"form_{key_prefix}"):
         col1, col2 = st.columns(2)
         with col1:
-             st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
+            age = st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"{key_prefix}_gender")
+            bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0, key=f"{key_prefix}_bmi")
+            sbp = st.number_input("Systolic BP", min_value=60, max_value=250, value=120, key=f"{key_prefix}_sbp")
         with col2:
-             st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
+            dbp = st.number_input("Diastolic BP", min_value=40, max_value=160, value=80, key=f"{key_prefix}_dbp")
+            glucose = st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
+            cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=100, max_value=500, value=180, key=f"{key_prefix}_cholesterol")
+            smoker = st.selectbox("Smoker", ["No", "Yes"], index=0, key=f"{key_prefix}_smoker")
         submitted = st.form_submit_button("Run Analysis")
-    # Return dummy data
-    data = {'age': 45, 'gender': 'Male', 'bmi': 25.0, 'sbp': 120.0, 'dbp': 80.0, 'glucose': 100.0, 'cholesterol': 180.0, 'smoker': False}
+    data = {
+        "age": int(age), "gender": gender, "bmi": float(bmi), "sbp": float(sbp), "dbp": float(dbp),
+        "glucose": float(glucose), "cholesterol": float(cholesterol), "smoker": smoker == "Yes"
+    }
     return submitted, data
+    
+def text_classify(text: str, tokenizer, model, labels=None):
+    if tokenizer is None or model is None:
+        return {"label": "unknown", "score": 0.0}
+    try:
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        logits = outputs.logits
+        probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
+        pred = int(np.argmax(probs))
+        
+        if labels:
+            lbl = labels[pred]
+        else:
+            lbl = str(pred)
+        return {"label": lbl, "score": float(probs[pred])}
+    except Exception as e:
+        # st.error(f"Error during text classification: {e}") # Suppress error for clean UI
+        return {"label": "error", "score": 0.0}
 
-# --- Module Placeholders ---
+def translate_text(text: str, src: str, tgt: str):
+    tkn, m = load_translation_model(src, tgt)
+    if tkn is None or m is None:
+        return "Translation model not available for this pair; returning original text."
+    
+    inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
+    with torch.no_grad():
+        translated = m.generate(**inputs)
+    out = tkn.batch_decode(translated, skip_special_tokens=True)[0]
+    return out
+
+def sentiment_text(text: str, tokenizer, model):
+    if tokenizer is None or model is None:
+        return {"label": "unknown", "score": 0.0}
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        probs = torch.nn.functional.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
+        pred_label = np.argmax(probs)
+        labels = ["Negative", "Neutral", "Positive"]
+        return {"label": labels[pred_label], "score": float(probs[pred_label])}
+        
+def preprocess_structured_input(data: Dict[str, Any]):
+    numeric_keys = ["age", "bmi", "sbp", "dbp", "glucose", "cholesterol"]
+    vals = []
+    for k in numeric_keys:
+        v = data.get(k, 0.0)
+        try:
+            vals.append(float(v))
+        except Exception:
+            vals.append(0.0)
+    return np.array(vals).reshape(1, -1)
+
+
+# -------------------------
+# Module: Risk Stratification
+# -------------------------
 if menu == "🧑‍⚕️ Risk Stratification":
     st.title("Risk Stratification")
     st.write("Predict a patient's risk level based on key health indicators.")
     submitted, pdata = patient_input_form("risk")
     if submitted:
-        score = (pdata['age'] >= 60) * 2
-        label = "Low Risk" if score <= 1 else "High Risk"
-        st.success(f"Predicted Risk Level: *{label}*")
+        score = 0
+        score += (pdata['age'] >= 60) * 2 + (45 <= pdata['age'] < 60) * 1
+        score += (pdata['bmi'] >= 30) * 2 + (25 <= pdata['bmi'] < 30) * 1
+        score += (pdata['sbp'] >= 140) * 2 + (130 <= pdata['sbp'] < 140) * 1
+        score += (pdata['glucose'] >= 126) * 2 + (110 <= pdata['glucose'] < 126) * 1
+        score += (1 if pdata['smoker'] else 0)
+        label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
+        st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
+
+# -------------------------
+# Module: Length of Stay Prediction
+# -------------------------
 elif menu == "⏱ Length of Stay Prediction":
     st.title("Length of Stay Prediction")
-    st.write("Predicts the expected hospital length of stay (in days).")
+    st.write("Predicts the expected hospital length of stay (in days) for a patient.")
     submitted, pdata = patient_input_form("los")
-    if submitted: st.success(f"Predicted length of stay: *5 days*")
+    if submitted:
+        los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
+        los_est_rounded = int(round(los_est))
+        st.success(f"Predicted length of stay: *{los_est_rounded} days*")
+        st.info("The prediction is based on a simplified model.")
+
+# -------------------------
+# Module: Patient Segmentation
+# -------------------------
 elif menu == "👥 Patient Segmentation":
     st.title("Patient Segmentation")
     st.write("Assigns a patient to a distinct health cohort.")
+    submitted, pdata = patient_input_form("seg")
+    if submitted:
+        X_new = preprocess_structured_input(pdata)
+        rng = np.random.RandomState(42)
+        synthetic_data = rng.normal(loc=[50,25,120,80,100,180], scale=[15,5,20,10,30,40], size=(200,6))
+        X_all = np.vstack([synthetic_data, X_new])
+        scaler = StandardScaler()
+        Xs = scaler.fit_transform(X_all)
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
+        pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
+        st.success(f"Assigned Cohort: *Cohort {pred_label + 1}*")
+        # Visualization code remains the same...
+
+# -------------------------
+# Module: Imaging Diagnostics
+# -------------------------
 elif menu == "🩻 Imaging Diagnostics":
     st.title("Imaging Diagnostics")
     st.write("Simulates medical image analysis using a dummy model.")
+    st.info("This is a placeholder module.")
+    uploaded_file = st.file_uploader("Upload a medical image (e.g., X-ray)", type=["png", "jpg", "jpeg"])
+    if uploaded_file:
+        st.image(uploaded_file, caption='Uploaded Image', use_column_width=True)
+        @st.cache_resource
+        def dummy_diagnose_image(image):
+            diag = np.random.choice(["No Anomaly Detected", "Pneumonia Detected", "Fracture Identified", "Mass Detected"], p=[0.7, 0.15, 0.1, 0.05])
+            confidence = np.random.uniform(0.7, 0.99)
+            return {"diagnosis": diag, "confidence": confidence}
+        if st.button("Run Diagnosis"):
+            with st.spinner("Analyzing image..."):
+                result = dummy_diagnose_image(uploaded_file)
+                st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
+
+# -------------------------
+# Module: Sequence Forecasting
+# -------------------------
 elif menu == "📈 Sequence Forecasting":
     st.title("Sequence Forecasting")
-    st.write("Predicts a patient's next health metric value.")
+    st.write("Predicts a patient's next health metric value based on a time-series of past data.")
+    st.info("This is a simplified example.")
+    col1, col2 = st.columns(2)
+    with col1:
+        num_points = st.slider("Number of data points to generate", 5, 50, 15)
+    with col2:
+        noise_level = st.slider("Noise level", 0.0, 1.0, 0.1)
+    if st.button("Generate Data and Predict"):
+        np.random.seed(42)
+        trend = np.linspace(50, 80, num_points)
+        noise = np.random.normal(0, noise_level * 10, num_points)
+        data = trend + noise
+        df_seq = pd.DataFrame({"Time": range(1, num_points + 1), "Metric Value": data})
+        st.subheader("Generated Time-Series Data")
+        st.line_chart(df_seq.set_index("Time"))
+        last_two = data[-2:]
+        prediction = last_two[1] + (last_two[1] - last_two[0])
+        st.success(f"Based on the trend, the predicted next value is: *{prediction:.2f}*")
+
+# -------------------------
+# Module: Clinical Notes Analysis
+# -------------------------
 elif menu == "📝 Clinical Notes Analysis":
     st.title("Clinical Notes Analysis")
     st.write("Analyzes clinical notes to provide insights.")
+    notes = st.text_area("Paste clinical notes here", height=200, placeholder="Example: The patient presented with chest pain and a consistent cough.")
+    if st.button("Analyze Notes"):
+        if not notes.strip():
+            st.warning("Please paste clinical notes to analyze.")
+        else:
+            res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
+            if res['label'] == 'error' or res['label'] == 'unknown':
+                st.error("Failed to analyze notes. Check model loading.")
+            else:
+                st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
+
+# -------------------------
+# Module: Translator
+# -------------------------
 elif menu == "🌐 Translator":
     st.title("Translator")
-    st.write("Translate clinical or patient-facing text.")
+    st.write("Translate clinical or patient-facing text between different languages.")
+    col1, col2 = st.columns(2)
+    with col1:
+        src_lang = st.selectbox("Source Language", list(LANGUAGE_DICT.keys()), index=0)
+    with col2:
+        tgt_lang = st.selectbox("Target Language", list(LANGUAGE_DICT.keys()), index=1)
+    
+    text_to_trans = st.text_area("Text to translate", "Please describe your symptoms and any medications you are taking.", key="translator_input")
+    
+    if st.button("Translate"):
+        src_code = LANGUAGE_DICT.get(src_lang, "en")
+        tgt_code = LANGUAGE_DICT.get(tgt_lang, "en")
+        
+        with st.spinner("Translating..."):
+            translated_text = translate_text(text_to_trans, src_code, tgt_code)
+            st.success("Translated Text:")
+            st.write(translated_text)
+
+# -------------------------
+# Module: Sentiment Analysis
+# -------------------------
 elif menu == "💬 Sentiment Analysis":
     st.title("Patient Feedback Sentiment Analysis")
     st.write("Analyzes patient feedback to determine the sentiment.")
-elif menu == "💡 Together Chat Assistant": # Logic under the CORRECTED NAME
-    st.title("Together Chat Assistant")
-    st.write("Ask questions and get information from the powerful LLM model.")
-    # Chat logic for Gemini Assistant is implemented here
+    patient_feedback = st.text_area("Patient Feedback", "The nurse was very helpful, but the wait time was too long.", key="sentiment_input")
+    if st.button("Analyze Sentiment"):
+        if not patient_feedback.strip():
+            st.warning("Please provide some feedback to analyze.")
+        else:
+            sentiment_result = sentiment_text(patient_feedback, sent_tok, sent_model)
+            if sentiment_result['label'] == 'unknown':
+                st.error("Sentiment analysis model could not be loaded. Check your dependencies.")
+            else:
+                st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
+
+# -------------------------
+# Module: Together Chat Assistant (Uses Gemini for implementation)
+# -------------------------
+elif menu == "💡 Together Chat Assistant":
+    st.title("Together Chat Assistant (Powered by Gemini)")
+    st.write("Ask questions and get general health information from a language model assistant.")
+    
     if not GEMINI_API_KEY:
-        st.error("The chat assistant is not configured. Please check your API key.")
+        st.error("The chat assistant is not configured. Please check your GEMINI_API_KEY in `secrets.toml`.")
         st.stop()
-    if "messages_gemini" not in st.session_state:
-        st.session_state["messages_gemini"] = [{"role": "assistant", "content": "Hello! I am a general health assistant."}]
-    
-    for msg in st.session_state.messages_gemini:
+        
+    if "messages_assistant" not in st.session_state:
+        st.session_state["messages_assistant"] = [
+            {"role": "assistant", "content": "Hello! I am a general health assistant powered by Google Gemini. How can I help you today?"}
+        ]
+
+    for msg in st.session_state.messages_assistant:
         st.chat_message(msg["role"]).write(msg["content"])
-    
+
     if prompt := st.chat_input("Ask me anything about general health..."):
         if not st.session_state.get('gemini_client'):
             st.chat_message("assistant").write("The chat assistant is not configured. Please check your API key.")
             st.stop()
 
-        st.session_state.messages_gemini.append({"role": "user", "content": prompt})
+        st.session_state.messages_assistant.append({"role": "user", "content": prompt})
         st.chat_message("user").write(prompt)
 
         with st.chat_message("assistant"):
@@ -407,7 +640,7 @@ elif menu == "💡 Together Chat Assistant": # Logic under the CORRECTED NAME
                 )
                 full_response = response_json.get('response', response_json.get('error', "An unknown error occurred."))
                 st.write(full_response)
-                st.session_state.messages_gemini.append({"role": "assistant", "content": full_response})
+                st.session_state.messages_assistant.append({"role": "assistant", "content": full_response})
 
 
 # -------------------------
@@ -459,7 +692,7 @@ elif menu == "🧠 RAG Chatbot":
     # Handle user input
     if prompt := st.chat_input("Ask a health question..."):
         if not st.session_state.get('gemini_client'):
-            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your API key.")
+            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your Gemini API key.")
             st.stop()
         
         st.session_state.messages_rag.append({"role": "user", "content": prompt})
