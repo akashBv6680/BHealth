@@ -120,7 +120,7 @@ def initialize_rag_dependencies():
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             # The search tool is used for OOKB queries
-            google_search_tool = {"tools": [{"google_search": {}}]}
+            google_search_tool = [types.Tool(google_search={})] # Correct way to define the search tool
         else:
             gemini_client = None
             google_search_tool = None
@@ -181,6 +181,7 @@ def load_tabular_models():
 def get_collection():
     """Retrieves or creates the ChromaDB collection."""
     if 'db_client' not in st.session_state:
+         # Initialize dependencies if they haven't been yet
          st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
     return st.session_state.db_client.get_or_create_collection(
         name=COLLECTION_NAME
@@ -188,10 +189,6 @@ def get_collection():
 
 def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful health assistant.", tools=None, max_retries=5):
     """Calls the Gemini API with optional tools and exponential backoff for retries."""
-    if not st.session_state.get('gemini_client'):
-        # Re-initialize if not found
-        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
-
     if not st.session_state.get('gemini_client'):
         return {"error": "API Client not found. Check GEMINI_API_KEY in secrets.toml."}
     
@@ -248,8 +245,7 @@ def process_and_store_documents(documents):
         embeddings=embeddings,
         ids=document_ids
     )
-
-    st.toast("Documents processed and stored successfully!", icon="✅")
+    # st.toast(f"{len(documents)} Documents processed and stored successfully!", icon="✅")
 
 def retrieve_documents(query, n_results=5):
     """
@@ -275,12 +271,14 @@ def rag_pipeline(query, selected_language):
     """
     collection = get_collection()
     if collection.count() == 0:
-        return "I'm a chatbot that answers questions based on a knowledge base, which is currently empty. I will now use Google Search for your query."
+        # Fallback to general search if KB is empty
+        return f"The knowledge base is empty. I will use external search for: {query}"
 
     # --- RAG Step 1: Attempt Retrieval ---
     relevant_docs = retrieve_documents(query)
     
     # --- RAG Step 2: Context Check and Fallback Logic (Enhanced) ---
+    # Use external search if retrieval is poor (fewer than 3 docs)
     if len(relevant_docs) < 3: 
         
         # 1. Fallback to Google Search Tool (External Knowledge)
@@ -610,9 +608,8 @@ elif menu == "💡 Gemini Chat Assistant":
 # Module: RAG Chatbot
 # -------------------------
 elif menu == "🧠 RAG Chatbot":
-    st.title("Health RAG Chatbot 🧠")
-    st.write("A specialized assistant that answers questions based on a fixed knowledge base (KB), with a powerful **external knowledge fallback** using Google Search.")
-
+    # --- UI Cleanup: Removed st.title and st.write from the main body ---
+    
     # --- RAG Settings in Sidebar (MOVED FROM MAIN BODY) ---
     st.sidebar.markdown("---")
     st.sidebar.header("RAG Settings")
@@ -625,15 +622,20 @@ elif menu == "🧠 RAG Chatbot":
         key="rag_lang_select_sidebar"
     )
 
-    # Display current KB status
+    # Display current KB status (Checked *after* load attempt)
     kb_count = get_collection().count()
-    st.info(f"Knowledge Base Status: **{kb_count}** document chunks loaded (Default KB covers Cold, Diabetes, Hypertension, etc.)")
-    st.info("When an answer is outside the KB, I will use Google Search to provide an answer with external sources.")
+    st.sidebar.info(f"Knowledge Base Chunks: **{kb_count}**")
+
+    # --- Main Chat Interface ---
+    
+    # Custom heading for the RAG chat
+    st.markdown("## Health RAG Chatbot 🧠")
+    st.markdown("Ask questions about specific medical conditions. This chatbot is augmented with a knowledge base, with a powerful **external search fallback** for out-of-KB queries.")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
         st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": "Hello! I'm your RAG medical assistant. Ask me about conditions like Diabetes or Asthma. If I don't know the answer, I'll search the web for you!"}
+            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. Ask me about conditions like Diabetes or Asthma. (KB Chunks: {kb_count}) If I don't know the answer, I'll search the web for you!"}
         ]
 
     # Display chat messages
