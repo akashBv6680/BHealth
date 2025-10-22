@@ -1,6 +1,8 @@
+# Simplified requirements.txt - Removing pins to resolve ResolutionImpossible
+
 # Core Streamlit and LLM Dependencies
 streamlit
-google-genai          # CORRECTED: Changed from google-genai-sdk to google-genai
+google-genai          # Corrected package name
 pysqlite3-binary
 chromadb
 sentence-transformers
@@ -21,10 +23,7 @@ Pillow
 transformers
 tf-keras
 
-# Dependency Conflict Resolution (Minimal Pinning)
-# We only strictly pin Pydantic and Protobuf, and use a moderate pin for markdown.
-protobuf<5.0.0
-pydantic<2.0
-markdown-it-py==2.2.0
-mdurl==0.1.2
-# REMOVED: rich and pygments pins, allowing the environment to use its best fit.
+# Removed: protobuf<5.0.0
+# Removed: pydantic<2.0
+# Removed: markdown-it-py==2.2.0
+# Removed: mdurl==0.1.2
