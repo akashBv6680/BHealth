@@ -56,15 +56,15 @@ except ImportError:
     association_rules = None
     st.warning("mlxtend not found. Medical Associations module will not function.")
 
-# For Gemini AI chat assistant (optional)
+# For Gemini AI chat assistant (replacing Together AI)
 try:
-    # Use the official Google GenAI SDK for Gemini
     from google import genai
     from google.genai.errors import APIError
 except ImportError:
     genai = None
     APIError = None
-    st.warning("google-genai-sdk not found. Gemini Chat Assistant and RAG modules will not function.")
+    st.warning("google-genai not found. Gemini Chat Assistant and RAG modules will not function.")
+
 
 # -------------------------
 # App config
@@ -80,7 +80,7 @@ try:
 except Exception as e:
     st.error(f"Hugging Face login failed: {e}")
 
-# Gemini AI config - REPLACING TOGETHER AI
+# Gemini AI config (REPLACING Together AI config)
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
@@ -96,7 +96,6 @@ LANGUAGE_DICT = {
 COLLECTION_NAME = "rag_documents"
 
 # --- Placeholder Knowledge Base for the Chatbot ---
-# This has been expanded to include more comprehensive medical information
 KNOWLEDGE_BASE_TEXT = """
 ### Common Cold
 The common cold is a viral infection of your nose and throat (upper respiratory tract). It's usually harmless, although it might not feel that way. Many types of viruses can cause a common cold. Symptoms include a runny or stuffy nose, sore throat, cough, congestion, and sneezing. Rest, staying hydrated with fluids, and using over-the-counter medications like pain relievers and nasal decongestants are key for recovery. Cold symptoms typically last 7 to 10 days.
@@ -128,7 +127,7 @@ Osteoarthritis is the most common form of arthritis, affecting millions of peopl
 # -------------------------
 @st.cache_resource(show_spinner=False)
 def initialize_rag_dependencies():
-    """Initializes ChromaDB client and SentenceTransformer model for RAG."""
+    """Initializes ChromaDB client, SentenceTransformer model, and Gemini client."""
     try:
         db_path = tempfile.mkdtemp()
         db_client = chromadb.PersistentClient(path=db_path)
@@ -147,6 +146,8 @@ def initialize_rag_dependencies():
         st.error(f"An error occurred during RAG dependency initialization: {e}.")
         st.stop()
 
+
+# The rest of the load functions remain unchanged...
 @st.cache_resource(show_spinner=False)
 def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
     """Loads a text classification model."""
@@ -190,7 +191,7 @@ def load_tabular_models():
     return clf, reg
 
 # -------------------------
-# Utility functions
+# Utility functions (unchanged)
 # -------------------------
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None:
@@ -215,9 +216,6 @@ def text_classify(text: str, tokenizer, model, labels=None):
 def translate_text(text: str, src: str, tgt: str):
     tkn, m = load_translation_model(src, tgt)
     if tkn is None or m is None:
-        # Fallback to a warning and returning original text or use Gemini if available, 
-        # but for simplicity and consistency with the original code structure, 
-        # we stick to MarianMT.
         return "Translation model not available for this pair; returning original text."
     
     inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
@@ -249,7 +247,7 @@ def preprocess_structured_input(data: Dict[str, Any]):
     return np.array(vals).reshape(1, -1)
 
 # -------------------------
-# RAG/Gemini functions (REPLACED TOGETHER AI)
+# RAG/Gemini functions (REPLACED Together AI)
 # -------------------------
 def get_collection():
     """Retrieves or creates the ChromaDB collection."""
@@ -257,8 +255,8 @@ def get_collection():
         name=COLLECTION_NAME
     )
 
-def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful assistant.", max_retries=5):
-    """Calls the Gemini API with exponential backoff for retries."""
+def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful health assistant.", max_retries=5):
+    """Calls the Gemini API with exponential backoff for retries (Replacing call_together_api)."""
     if not st.session_state.get('gemini_client'):
         st.error("Gemini AI client is not configured.")
         return {"error": "API Client not found."}
@@ -276,14 +274,11 @@ def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="Y
                 config=config,
             )
             
-            # The structure of the Gemini response is different from Together/OpenAI
             return {"response": response.text}
         
         except APIError as e:
-            # Note: The Gemini API usually handles retries automatically for rate limits,
-            # but this block catches broader API errors (e.g., authentication, invalid request)
-            if "RESOURCE_EXHAUSTED" in str(e): # A common pattern for rate limit/quota issues
-                st.warning(f"Rate limit exceeded or quota issue. Retrying in {retry_delay} seconds...")
+            if "RESOURCE_EXHAUSTED" in str(e):
+                st.warning(f"Rate limit or quota issue. Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 retry_delay *= 2
             elif "API_KEY_INVALID" in str(e):
@@ -295,6 +290,7 @@ def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="Y
         except Exception as e:
             st.error(f"An error occurred during the API call: {e}")
             return {"error": str(e)}
+
 
 def clear_chroma_data():
     """Clears all data from the ChromaDB collection."""
@@ -363,10 +359,8 @@ def rag_pipeline(query, selected_language_code):
     
     context = "\n".join(relevant_docs)
     
-    # NOTE: We keep the translation step external to the LLM call for consistency with original code,
-    # but the final prompt now instructs Gemini to respond in the target language.
-    
-    prompt = f"Using the following information, answer the user's question. The final response MUST be in {st.session_state.selected_language}. If the information is not present in the context below, state that you cannot answer from the provided data. \n\nContext: {context}\n\nQuestion: {query}\n\nAnswer:"
+    # The prompt instructs Gemini to respond in the target language.
+    prompt = f"Using the following information, answer the user's question. The final response MUST be in {st.session_state.selected_language}. If the information is not present, state that you cannot answer. \n\nContext: {context}\n\nQuestion: {query}\n\nAnswer:"
     
     response_json = call_gemini_api(prompt)
 
@@ -374,6 +368,7 @@ def rag_pipeline(query, selected_language_code):
         return "An error occurred while generating the response. Please try again."
     
     try:
+        # Adjusted for Gemini response structure
         response_text = response_json['response']
         return response_text
     except KeyError:
@@ -401,6 +396,8 @@ menu = st.sidebar.radio("Select Module", [
 text_tok, text_model = load_text_classifier()
 sent_tok, sent_model = load_sentiment_model()
 demo_clf, demo_reg = load_tabular_models()
+
+# Initialization check block updated to load gemini_client
 if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
     if 'db_client' not in st.session_state or 'model' not in st.session_state or 'gemini_client' not in st.session_state:
         # Load all RAG/Gemini dependencies
@@ -410,16 +407,14 @@ if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
         if menu == "🧠 RAG Chatbot":
             with st.spinner("Loading and processing default knowledge base..."):
                 documents = split_documents(KNOWLEDGE_BASE_TEXT)
-                # Ensure we only store if the collection is empty
+                # Check if the collection is empty before adding the default KB
                 if get_collection().count() == 0:
                     process_and_store_documents(documents)
                 else:
                     st.toast("Default KB already loaded.", icon="ℹ️")
 
 
-# -------------------------
-# Common patient form fields (used across pages)
-# -------------------------
+# ... (Common patient form fields and other modules remain UNCHANGED) ...
 def patient_input_form(key_prefix="p"):
     with st.form(key=f"form_{key_prefix}"):
         col1, col2 = st.columns(2)
@@ -620,11 +615,11 @@ elif menu == "💬 Sentiment Analysis":
                 st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
 
 # -------------------------
-# Module: Gemini Chat Assistant (REPLACING TOGETHER AI)
+# Module: Gemini Chat Assistant (REPLACED Together AI)
 # -------------------------
 elif menu == "💡 Gemini Chat Assistant":
     st.title("Gemini AI Chat Assistant")
-    st.write("Ask general health questions and get information from the powerful Gemini model.")
+    st.write("Ask questions and get information from the powerful Gemini model.")
     
     if not GEMINI_API_KEY:
         st.error("Gemini AI API key is not configured. Please add it to `secrets.toml` as **GEMINI_API_KEY**.")
@@ -648,7 +643,7 @@ elif menu == "💡 Gemini Chat Assistant":
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                # Call Gemini for a direct, non-RAG response
+                # Call Gemini for a direct response
                 response_json = call_gemini_api(
                     prompt=prompt,
                     model_name="gemini-2.5-flash",
@@ -660,12 +655,13 @@ elif menu == "💡 Gemini Chat Assistant":
                     st.error(full_response)
                 else:
                     full_response = response_json['response']
+                    st.write(full_response)
 
                 st.session_state.messages_gemini.append({"role": "assistant", "content": full_response})
-                st.write(full_response)
+
 
 # -------------------------
-# Module: RAG Chatbot
+# Module: RAG Chatbot (Minor API update only)
 # -------------------------
 elif menu == "🧠 RAG Chatbot":
     st.title("Health RAG Chatbot")
@@ -674,16 +670,12 @@ elif menu == "🧠 RAG Chatbot":
     if not GEMINI_API_KEY:
         st.error("The RAG Chatbot requires the Gemini AI API key to function. Please add it to `secrets.toml` as **GEMINI_API_KEY**.")
         st.stop()
-
-    # Get the code for the selected language
-    selected_language_code = LANGUAGE_DICT.get(st.session_state.get("selected_language", "English"), "en")
-
-    # --- RAG Sidebar Configuration ---
+        
+    # Sidebar for RAG configuration and history
     with st.sidebar:
         st.markdown("---")
         st.subheader("RAG Settings")
         
-        # Language Selector
         st.session_state.selected_language = st.selectbox(
             "Select a Language for response",
             options=list(LANGUAGE_DICT.keys()),
@@ -741,8 +733,7 @@ elif menu == "🧠 RAG Chatbot":
             st.session_state.messages_rag.append(
                 {"role": "assistant", "content": "Default knowledge base reloaded. Ask me anything! 😊"}
             )
-            # st.experimental_rerun() is removed here as it is not an officially supported command.
-            st.rerun() # Use st.rerun() instead
+            st.rerun() 
 
     # --- Main Chat Interface ---
 
