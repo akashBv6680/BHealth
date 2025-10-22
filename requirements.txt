@@ -1,6 +1,6 @@
 # Core Streamlit and LLM Dependencies
 streamlit
-google-genai-sdk
+google-genai          # CORRECTED: Changed from google-genai-sdk to google-genai
 pysqlite3-binary
 chromadb
 sentence-transformers
@@ -21,17 +21,10 @@ Pillow
 transformers
 tf-keras
 
-# CRITICAL CONFLICT RESOLUTION (Strict Pinning)
-# This often fixes the rich/markdown-it-py conflict in CI environments.
-
-# Pinning Pygments and Rich to a widely compatible version range
-rich==13.7.1
-pygments==2.15.1
-
-# Pinning the core Markdown components
-markdown-it-py==2.2.0
-mdurl==0.1.2
-
-# General Pydantic/Protobuf cleanup (Good practice)
+# Dependency Conflict Resolution (Minimal Pinning)
+# We only strictly pin Pydantic and Protobuf, and use a moderate pin for markdown.
 protobuf<5.0.0
 pydantic<2.0
+markdown-it-py==2.2.0
+mdurl==0.1.2
+# REMOVED: rich and pygments pins, allowing the environment to use its best fit.
