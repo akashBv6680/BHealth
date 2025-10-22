@@ -1,17 +1,32 @@
+# Core Streamlit and LLM Dependencies
 streamlit
-pysqlite3-binary
+google-genai-sdk # Replaces 'together' for the Gemini API
+pysqlite3-binary # For ChromaDB fix
 chromadb
 sentence-transformers
 langchain-text-splitters
 requests
+
+# Data Science and ML Frameworks
 numpy
 pandas
 matplotlib
+scikit-learn
+mlxtend # For association rules
+
+# Hugging Face and PyTorch
 torch
 torchvision
 Pillow
-scikit-learn
 transformers
 tf-keras # Retained, assuming you still need it
-mlxtend
-google-genai-sdk # New dependency for Gemini API
+
+# Dependency Conflict Resolution (Pinned Versions)
+# These versions are often required by 'google-genai-sdk' or 'streamlit' and should prevent the uninstall/reinstall loop.
+protobuf<5.0.0
+pydantic<2.0
+# Pinned versions to resolve conflicts seen in the error log
+markdown-it-py==4.0.0
+mdurl==0.1.2
+rich==13.7.1 # Using a slightly older, stable version of rich to avoid conflicts
+pygments==2.19.2
