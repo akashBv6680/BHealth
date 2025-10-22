@@ -1,7 +1,7 @@
 # Core Streamlit and LLM Dependencies
 streamlit
-google-genai-sdk # Replaces 'together' for the Gemini API
-pysqlite3-binary # For ChromaDB fix
+google-genai-sdk
+pysqlite3-binary
 chromadb
 sentence-transformers
 langchain-text-splitters
@@ -12,21 +12,26 @@ numpy
 pandas
 matplotlib
 scikit-learn
-mlxtend # For association rules
+mlxtend
 
 # Hugging Face and PyTorch
 torch
 torchvision
 Pillow
 transformers
-tf-keras # Retained, assuming you still need it
+tf-keras
 
-# Dependency Conflict Resolution (Pinned Versions)
-# These versions are often required by 'google-genai-sdk' or 'streamlit' and should prevent the uninstall/reinstall loop.
+# CRITICAL CONFLICT RESOLUTION (Strict Pinning)
+# This often fixes the rich/markdown-it-py conflict in CI environments.
+
+# Pinning Pygments and Rich to a widely compatible version range
+rich==13.7.1
+pygments==2.15.1
+
+# Pinning the core Markdown components
+markdown-it-py==2.2.0
+mdurl==0.1.2
+
+# General Pydantic/Protobuf cleanup (Good practice)
 protobuf<5.0.0
 pydantic<2.0
-# Pinned versions to resolve conflicts seen in the error log
-markdown-it-py==4.0.0
-mdurl==0.1.2
-rich==13.7.1 # Using a slightly older, stable version of rich to avoid conflicts
-pygments==2.19.2
