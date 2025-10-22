@@ -55,6 +55,7 @@ except ImportError:
 st.set_page_config(page_title="HealthAI Suite", page_icon="🩺", layout="wide")
 
 # Gemini AI config
+# NOTE: Ensure GEMINI_API_KEY is set in your Streamlit secrets (secrets.toml)
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
@@ -116,6 +117,7 @@ def initialize_rag_dependencies():
         # Initialize Gemini Client and configure Google Search Tool
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+            # This is the correct way to enable the Google Search tool for the LLM
             google_search_tool = [types.Tool(google_search={})] 
         else:
             gemini_client = None
@@ -125,7 +127,7 @@ def initialize_rag_dependencies():
 
         return db_client, model, gemini_client, google_search_tool
     except Exception as e:
-        st.error(f"An error occurred during RAG dependency initialization: {e}. Check dependencies and API Key.")
+        st.error(f"An error occurred during RAG dependency initialization: {e}. Please ensure all libraries are installed.")
         st.stop()
 
 
@@ -135,6 +137,7 @@ def initialize_rag_dependencies():
 def get_collection():
     """Retrieves or creates the ChromaDB collection."""
     if 'db_client' not in st.session_state:
+         # Initialize dependencies if they haven't been yet
          st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
     return st.session_state.db_client.get_or_create_collection(
         name=COLLECTION_NAME
@@ -242,8 +245,7 @@ def rag_pipeline(query, selected_language):
     collection = get_collection()
     relevant_docs = retrieve_documents(query)
     
-    # Determine if we need to use the KB or fall back to external search
-    # Fallback if few documents are retrieved (or KB is empty)
+    # Fallback to external search if few documents are retrieved (or KB is empty)
     use_external_search = len(relevant_docs) < 3 or collection.count() == 0
 
     if use_external_search: 
@@ -294,6 +296,7 @@ def rag_pipeline(query, selected_language):
 # App UI: Sidebar + Navigation
 # -------------------------
 st.sidebar.title("HealthAI Suite")
+# CORRECTED MENU LIST
 menu = st.sidebar.radio("Select Module", [
     "🧑‍⚕️ Risk Stratification",
     "⏱ Length of Stay Prediction",
@@ -303,7 +306,7 @@ menu = st.sidebar.radio("Select Module", [
     "📝 Clinical Notes Analysis",
     "🌐 Translator",
     "💬 Sentiment Analysis",
-    "💡 Gemini Chat Assistant",
+    "💡 Together Chat Assistant", # CORRECTED NAME
     "🧠 RAG Chatbot"
 ])
 
@@ -312,7 +315,8 @@ if 'selected_language' not in st.session_state:
     st.session_state.selected_language = "English"
 
 # Initialization block for RAG/Gemini dependencies and KB loading
-if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
+# Note: The 'Together Chat Assistant' uses the same Gemini/API setup as RAG
+if menu == "🧠 RAG Chatbot" or menu == "💡 Together Chat Assistant":
     if 'db_client' not in st.session_state:
         st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
         
@@ -331,29 +335,85 @@ if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
 def patient_input_form(key_prefix="p"):
     # Simplified form for the demo placeholders
     with st.form(key=f"form_{key_prefix}"):
-        st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
-        st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
+        col1, col2 = st.columns(2)
+        with col1:
+             st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
+        with col2:
+             st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
         submitted = st.form_submit_button("Run Analysis")
+    # Return dummy data
     data = {'age': 45, 'gender': 'Male', 'bmi': 25.0, 'sbp': 120.0, 'dbp': 80.0, 'glucose': 100.0, 'cholesterol': 180.0, 'smoker': False}
     return submitted, data
 
-# --- Module Placeholders (simplified to fit standard structure) ---
+# --- Module Placeholders ---
 if menu == "🧑‍⚕️ Risk Stratification":
     st.title("Risk Stratification")
     st.write("Predict a patient's risk level based on key health indicators.")
     submitted, pdata = patient_input_form("risk")
     if submitted:
-        score = 0
-        score += (pdata['age'] >= 60) * 2
+        score = (pdata['age'] >= 60) * 2
         label = "Low Risk" if score <= 1 else "High Risk"
-        st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
-# ... (rest of the placeholder module logic should follow here) ...
+        st.success(f"Predicted Risk Level: *{label}*")
+elif menu == "⏱ Length of Stay Prediction":
+    st.title("Length of Stay Prediction")
+    st.write("Predicts the expected hospital length of stay (in days).")
+    submitted, pdata = patient_input_form("los")
+    if submitted: st.success(f"Predicted length of stay: *5 days*")
+elif menu == "👥 Patient Segmentation":
+    st.title("Patient Segmentation")
+    st.write("Assigns a patient to a distinct health cohort.")
+elif menu == "🩻 Imaging Diagnostics":
+    st.title("Imaging Diagnostics")
+    st.write("Simulates medical image analysis using a dummy model.")
+elif menu == "📈 Sequence Forecasting":
+    st.title("Sequence Forecasting")
+    st.write("Predicts a patient's next health metric value.")
+elif menu == "📝 Clinical Notes Analysis":
+    st.title("Clinical Notes Analysis")
+    st.write("Analyzes clinical notes to provide insights.")
+elif menu == "🌐 Translator":
+    st.title("Translator")
+    st.write("Translate clinical or patient-facing text.")
+elif menu == "💬 Sentiment Analysis":
+    st.title("Patient Feedback Sentiment Analysis")
+    st.write("Analyzes patient feedback to determine the sentiment.")
+elif menu == "💡 Together Chat Assistant": # Logic under the CORRECTED NAME
+    st.title("Together Chat Assistant")
+    st.write("Ask questions and get information from the powerful LLM model.")
+    # Chat logic for Gemini Assistant is implemented here
+    if not GEMINI_API_KEY:
+        st.error("The chat assistant is not configured. Please check your API key.")
+        st.stop()
+    if "messages_gemini" not in st.session_state:
+        st.session_state["messages_gemini"] = [{"role": "assistant", "content": "Hello! I am a general health assistant."}]
+    
+    for msg in st.session_state.messages_gemini:
+        st.chat_message(msg["role"]).write(msg["content"])
+    
+    if prompt := st.chat_input("Ask me anything about general health..."):
+        if not st.session_state.get('gemini_client'):
+            st.chat_message("assistant").write("The chat assistant is not configured. Please check your API key.")
+            st.stop()
+
+        st.session_state.messages_gemini.append({"role": "user", "content": prompt})
+        st.chat_message("user").write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                response_json = call_gemini_api(
+                    prompt=prompt,
+                    model_name="gemini-2.5-flash",
+                    system_instruction="You are a helpful and medically accurate general health assistant. Keep your answers concise."
+                )
+                full_response = response_json.get('response', response_json.get('error', "An unknown error occurred."))
+                st.write(full_response)
+                st.session_state.messages_gemini.append({"role": "assistant", "content": full_response})
 
 
 # -------------------------
 # Module: RAG Chatbot (The Main Focus)
 # -------------------------
-if menu == "🧠 RAG Chatbot":
+elif menu == "🧠 RAG Chatbot":
     
     # --- RAG Settings in Sidebar (Language Selection & KB Management) ---
     st.sidebar.markdown("---")
@@ -382,13 +442,14 @@ if menu == "🧠 RAG Chatbot":
 
     # --- Main Chat Interface ---
     
+    # Clean, concise title
     st.markdown("## Health RAG Chatbot 🧠")
     st.markdown("A specialized **Health Consultant AI**. It uses its fixed knowledge base (KB) first, then falls back to **Google Search** to provide comprehensive answers and **reliable external source links** for all health queries.")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
         st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. I have a large health knowledge base, and I will **search the web for external sources** if needed. How can I help clarify your health doubts today?"}
+            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. I have a large health knowledge base (Chunks: {kb_count}), and I will **search the web for external sources** if needed. How can I help clarify your health doubts today?"}
         ]
 
     # Display chat messages
@@ -398,7 +459,7 @@ if menu == "🧠 RAG Chatbot":
     # Handle user input
     if prompt := st.chat_input("Ask a health question..."):
         if not st.session_state.get('gemini_client'):
-            st.chat_message("assistant").write("The RAG chatbot is not configured due to missing Gemini API key or dependencies.")
+            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your API key.")
             st.stop()
         
         st.session_state.messages_rag.append({"role": "user", "content": prompt})
