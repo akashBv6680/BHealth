@@ -56,12 +56,15 @@ except ImportError:
     association_rules = None
     st.warning("mlxtend not found. Medical Associations module will not function.")
 
-# For Together AI chat assistant (optional)
+# For Gemini AI chat assistant (optional)
 try:
-    import together
+    # Use the official Google GenAI SDK for Gemini
+    from google import genai
+    from google.genai.errors import APIError
 except ImportError:
-    together = None
-    st.warning("together not found. Together Chat Assistant module will not function.")
+    genai = None
+    APIError = None
+    st.warning("google-genai-sdk not found. Gemini Chat Assistant and RAG modules will not function.")
 
 # -------------------------
 # App config
@@ -77,9 +80,8 @@ try:
 except Exception as e:
     st.error(f"Hugging Face login failed: {e}")
 
-# Together AI config
-TOGETHER_API_KEY = st.secrets.get("TOGETHER_API_KEY")
-TOGETHER_API_URL = "https://api.together.xyz/v1/chat/completions"
+# Gemini AI config - REPLACING TOGETHER AI
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
 LANGUAGE_DICT = {
@@ -132,7 +134,15 @@ def initialize_rag_dependencies():
         db_client = chromadb.PersistentClient(path=db_path)
         # Explicitly load the model to the CPU
         model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
-        return db_client, model
+        
+        # Initialize Gemini Client
+        if GEMINI_API_KEY and genai:
+            gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        else:
+            gemini_client = None
+            st.error("Gemini AI client not initialized. Check API key and dependencies.")
+
+        return db_client, model, gemini_client
     except Exception as e:
         st.error(f"An error occurred during RAG dependency initialization: {e}.")
         st.stop()
@@ -205,6 +215,9 @@ def text_classify(text: str, tokenizer, model, labels=None):
 def translate_text(text: str, src: str, tgt: str):
     tkn, m = load_translation_model(src, tgt)
     if tkn is None or m is None:
+        # Fallback to a warning and returning original text or use Gemini if available, 
+        # but for simplicity and consistency with the original code structure, 
+        # we stick to MarianMT.
         return "Translation model not available for this pair; returning original text."
     
     inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
@@ -236,7 +249,7 @@ def preprocess_structured_input(data: Dict[str, Any]):
     return np.array(vals).reshape(1, -1)
 
 # -------------------------
-# RAG functions
+# RAG/Gemini functions (REPLACED TOGETHER AI)
 # -------------------------
 def get_collection():
     """Retrieves or creates the ChromaDB collection."""
@@ -244,44 +257,37 @@ def get_collection():
         name=COLLECTION_NAME
     )
 
-def call_together_api(prompt, max_retries=5):
-    """Calls the Together AI API with exponential backoff for retries."""
-    if not TOGETHER_API_KEY:
-        st.error("Together AI API key is not configured.")
-        return {"error": "API Key not found."}
+def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful assistant.", max_retries=5):
+    """Calls the Gemini API with exponential backoff for retries."""
+    if not st.session_state.get('gemini_client'):
+        st.error("Gemini AI client is not configured.")
+        return {"error": "API Client not found."}
     
     retry_delay = 1
     for i in range(max_retries):
         try:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {TOGETHER_API_KEY}"
-            }
-            payload = {
-                "model": "mistralai/Mistral-7B-Instruct-v0.2",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "You are a helpful assistant."
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                "temperature": 0.7,
-                "max_tokens": 1024
-            }
-            response = requests.post(TOGETHER_API_URL, headers=headers, data=json.dumps(payload))
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 429:
-                st.warning(f"Rate limit exceeded. Retrying in {retry_delay} seconds...")
+            config = genai.types.GenerateContentConfig(
+                system_instruction=system_instruction
+            )
+            
+            response = st.session_state.gemini_client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=config,
+            )
+            
+            # The structure of the Gemini response is different from Together/OpenAI
+            return {"response": response.text}
+        
+        except APIError as e:
+            # Note: The Gemini API usually handles retries automatically for rate limits,
+            # but this block catches broader API errors (e.g., authentication, invalid request)
+            if "RESOURCE_EXHAUSTED" in str(e): # A common pattern for rate limit/quota issues
+                st.warning(f"Rate limit exceeded or quota issue. Retrying in {retry_delay} seconds...")
                 time.sleep(retry_delay)
                 retry_delay *= 2
-            elif e.response.status_code == 401:
-                st.error("Invalid API Key. Please check your Together AI API key.")
+            elif "API_KEY_INVALID" in str(e):
+                st.error("Invalid API Key. Please check your Gemini API key.")
                 return {"error": "401 Unauthorized"}
             else:
                 st.error(f"Failed to call API after {i+1} retries: {e}")
@@ -357,21 +363,20 @@ def rag_pipeline(query, selected_language_code):
     
     context = "\n".join(relevant_docs)
     
-    # Translate the user's query before sending to the LLM
-    translated_query = translate_text(query, LANGUAGE_DICT['English'], selected_language_code)
+    # NOTE: We keep the translation step external to the LLM call for consistency with original code,
+    # but the final prompt now instructs Gemini to respond in the target language.
     
-    prompt = f"Using the following information, answer the user's question. The final response MUST be in {st.session_state.selected_language}. If the information is not present, state that you cannot answer. \n\nContext: {context}\n\nQuestion: {query}\n\nAnswer:"
+    prompt = f"Using the following information, answer the user's question. The final response MUST be in {st.session_state.selected_language}. If the information is not present in the context below, state that you cannot answer from the provided data. \n\nContext: {context}\n\nQuestion: {query}\n\nAnswer:"
     
-    response_json = call_together_api(prompt)
+    response_json = call_gemini_api(prompt)
 
     if 'error' in response_json:
         return "An error occurred while generating the response. Please try again."
     
     try:
-        response_text = response_json['choices'][0]['message']['content']
-        # The LLM's response is already in the target language due to the prompt.
+        response_text = response_json['response']
         return response_text
-    except (KeyError, IndexError):
+    except KeyError:
         st.error("Invalid API response format.")
         return "Failed to get a valid response from the model."
 
@@ -388,7 +393,7 @@ menu = st.sidebar.radio("Select Module", [
     "📝 Clinical Notes Analysis",
     "🌐 Translator",
     "💬 Sentiment Analysis",
-    "💡 Together Chat Assistant",
+    "💡 Gemini Chat Assistant", # RENAMED
     "🧠 RAG Chatbot"
 ])
 
@@ -396,13 +401,21 @@ menu = st.sidebar.radio("Select Module", [
 text_tok, text_model = load_text_classifier()
 sent_tok, sent_model = load_sentiment_model()
 demo_clf, demo_reg = load_tabular_models()
-if menu == "🧠 RAG Chatbot":
-    if 'db_client' not in st.session_state or 'model' not in st.session_state:
-        st.session_state.db_client, st.session_state.model = initialize_rag_dependencies()
-        # Automatically load the default knowledge base
-        with st.spinner("Loading and processing default knowledge base..."):
-            documents = split_documents(KNOWLEDGE_BASE_TEXT)
-            process_and_store_documents(documents)
+if menu == "🧠 RAG Chatbot" or menu == "💡 Gemini Chat Assistant":
+    if 'db_client' not in st.session_state or 'model' not in st.session_state or 'gemini_client' not in st.session_state:
+        # Load all RAG/Gemini dependencies
+        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client = initialize_rag_dependencies()
+        
+        # Only load the default knowledge base if it's the RAG Chatbot
+        if menu == "🧠 RAG Chatbot":
+            with st.spinner("Loading and processing default knowledge base..."):
+                documents = split_documents(KNOWLEDGE_BASE_TEXT)
+                # Ensure we only store if the collection is empty
+                if get_collection().count() == 0:
+                    process_and_store_documents(documents)
+                else:
+                    st.toast("Default KB already loaded.", icon="ℹ️")
+
 
 # -------------------------
 # Common patient form fields (used across pages)
@@ -443,11 +456,6 @@ if menu == "🧑‍⚕️ Risk Stratification":
         score += (1 if pdata['smoker'] else 0)
         label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
-
-# -------------------------
-# Other modules follow...
-# ... (all other modules from the original script) ...
-# -------------------------
 
 # -------------------------
 # Module: Length of Stay Prediction
@@ -612,77 +620,137 @@ elif menu == "💬 Sentiment Analysis":
                 st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
 
 # -------------------------
-# Module: Together Chat Assistant
+# Module: Gemini Chat Assistant (REPLACING TOGETHER AI)
 # -------------------------
-elif menu == "💡 Together Chat Assistant":
-    st.title("Together AI Chat Assistant")
-    st.write("Ask questions and get information from a language model assistant.")
+elif menu == "💡 Gemini Chat Assistant":
+    st.title("Gemini AI Chat Assistant")
+    st.write("Ask general health questions and get information from the powerful Gemini model.")
     
-    if not TOGETHER_API_KEY:
-        st.error("Together AI API key is not configured. Please add it to `secrets.toml`.")
-    else:
-        try:
-            import together
-            together.api_key = TOGETHER_API_KEY
-        except Exception as e:
-            st.error(f"Together AI library initialization failed: {e}")
-            together = None
-
-    if "messages_together" not in st.session_state:
-        st.session_state["messages_together"] = [
-            {"role": "assistant", "content": "Hello! I am a general health assistant. How can I help you today?"}
+    if not GEMINI_API_KEY:
+        st.error("Gemini AI API key is not configured. Please add it to `secrets.toml` as **GEMINI_API_KEY**.")
+        st.stop()
+    
+    if "messages_gemini" not in st.session_state:
+        st.session_state["messages_gemini"] = [
+            {"role": "assistant", "content": "Hello! I am a general health assistant powered by Gemini. How can I help you today?"}
         ]
 
-    for msg in st.session_state.messages_together:
+    for msg in st.session_state.messages_gemini:
         st.chat_message(msg["role"]).write(msg["content"])
 
     if prompt := st.chat_input("Ask me anything about general health..."):
-        if not together:
+        if not st.session_state.get('gemini_client'):
             st.chat_message("assistant").write("The chat assistant is not configured.")
             st.stop()
         
-        st.session_state.messages_together.append({"role": "user", "content": prompt})
+        st.session_state.messages_gemini.append({"role": "user", "content": prompt})
         st.chat_message("user").write(prompt)
 
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
-                try:
-                    chat_completion = together.Complete.create(
-                        prompt=prompt,
-                        model="mistralai/Mixtral-8x7B-Instruct-v0.1"
-                    )
-                    full_response = chat_completion['choices'][0]['text']
-                    st.session_state.messages_together.append({"role": "assistant", "content": full_response})
-                    st.write(full_response)
-                except Exception as e:
-                    st.error(f"Chatbot failed: {e}")
+                # Call Gemini for a direct, non-RAG response
+                response_json = call_gemini_api(
+                    prompt=prompt,
+                    model_name="gemini-2.5-flash",
+                    system_instruction="You are a helpful and medically accurate health assistant."
+                )
+
+                if 'error' in response_json:
+                    full_response = "An error occurred while generating the response. Please try again."
+                    st.error(full_response)
+                else:
+                    full_response = response_json['response']
+
+                st.session_state.messages_gemini.append({"role": "assistant", "content": full_response})
+                st.write(full_response)
 
 # -------------------------
-# NEW Module: RAG Chatbot
+# Module: RAG Chatbot
 # -------------------------
 elif menu == "🧠 RAG Chatbot":
     st.title("Health RAG Chatbot")
     st.write("Ask questions about specific medical conditions. This chatbot is augmented with a knowledge base.")
 
-    # Sidebar for RAG configuration and history
+    if not GEMINI_API_KEY:
+        st.error("The RAG Chatbot requires the Gemini AI API key to function. Please add it to `secrets.toml` as **GEMINI_API_KEY**.")
+        st.stop()
+
+    # Get the code for the selected language
+    selected_language_code = LANGUAGE_DICT.get(st.session_state.get("selected_language", "English"), "en")
+
+    # --- RAG Sidebar Configuration ---
     with st.sidebar:
         st.markdown("---")
         st.subheader("RAG Settings")
+        
+        # Language Selector
         st.session_state.selected_language = st.selectbox(
             "Select a Language for response",
             options=list(LANGUAGE_DICT.keys()),
-            key="rag_language_selector"
+            key="rag_language_selector",
+            index=list(LANGUAGE_DICT.keys()).index(st.session_state.get("selected_language", "English"))
         )
-        if st.button("New Chat", key="rag_new_chat"):
-            st.session_state.messages_rag = []
-            clear_chroma_data()
-            st.session_state.chat_history = {}
-            st.session_state.current_chat_id = None
-            st.experimental_rerun()
+        selected_language_code = LANGUAGE_DICT.get(st.session_state.selected_language, "en")
         
+        st.markdown("### Manage Knowledge Base")
+        
+        # File Uploader
+        uploaded_file = st.file_uploader("Upload a new knowledge file (.txt/.md)", type=["txt", "md"])
+        
+        # GitHub Raw URL Input
+        github_url = st.text_input("or Paste a GitHub Raw URL (.txt/.md)", placeholder="https://raw.githubusercontent.com/...")
+        
+        # Load New Documents
+        if st.button("Add Documents to KB", key="rag_add_docs"):
+            text_data_to_add = None
+            if uploaded_file is not None:
+                text_data_to_add = uploaded_file.read().decode("utf-8")
+            elif github_url and is_valid_github_raw_url(github_url):
+                try:
+                    with st.spinner(f"Downloading from {github_url}..."):
+                        response = requests.get(github_url, timeout=10)
+                        response.raise_for_status()
+                        text_data_to_add = response.text
+                except Exception as e:
+                    st.error(f"Failed to download from URL: {e}")
+            elif github_url and not is_valid_github_raw_url(github_url):
+                 st.error("Invalid GitHub raw URL. Must be a raw file ending in .txt or .md.")
+            
+            if text_data_to_add:
+                with st.spinner("Processing and storing new documents..."):
+                    new_documents = split_documents(text_data_to_add)
+                    process_and_store_documents(new_documents)
+                    st.toast(f"{len(new_documents)} new document chunks added!", icon="📚")
+            else:
+                st.info("No valid file or URL provided to add documents.")
+
+        # Status and Reset
+        st.markdown("---")
+        collection_count = get_collection().count()
+        st.info(f"Knowledge Base Chunks: **{collection_count}**")
+
+        if st.button("Reset Knowledge Base", key="rag_reset_kb"):
+            clear_chroma_data()
+            st.session_state.messages_rag = [
+                {"role": "assistant", "content": "Knowledge base cleared. Reloading default documents..."}
+            ]
+            # Reload default KB
+            with st.spinner("Reloading default knowledge base..."):
+                documents = split_documents(KNOWLEDGE_BASE_TEXT)
+                process_and_store_documents(documents)
+            st.session_state.messages_rag.append(
+                {"role": "assistant", "content": "Default knowledge base reloaded. Ask me anything! 😊"}
+            )
+            # st.experimental_rerun() is removed here as it is not an officially supported command.
+            st.rerun() # Use st.rerun() instead
+
+    # --- Main Chat Interface ---
+
     # Initialize RAG chatbot state
     if 'messages_rag' not in st.session_state:
-        st.session_state.messages_rag = []
+        st.session_state.messages_rag = [
+            {"role": "assistant", "content": "Hello! I am your RAG Health Assistant. Ask me about the medical conditions in my knowledge base, like **Diabetes** or **Asthma**."}
+        ]
     
     if 'chat_history' not in st.session_state:
         st.session_state.chat_history = {}
@@ -700,15 +768,27 @@ elif menu == "🧠 RAG Chatbot":
             st.markdown(message["content"])
 
     # Handle user input
-    if prompt := st.chat_input("Ask about the health conditions..."):
+    if prompt := st.chat_input(f"Ask about the health conditions (response in {st.session_state.selected_language})..."):
+        
         st.session_state.messages_rag.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
         
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
+            with st.spinner("Searching knowledge base and generating response..."):
                 selected_language_code = LANGUAGE_DICT[st.session_state.selected_language]
                 response = rag_pipeline(prompt, selected_language_code)
                 st.markdown(response)
 
         st.session_state.messages_rag.append({"role": "assistant", "content": response})
+
+        # Update chat history (basic functionality)
+        if st.session_state.current_chat_id in st.session_state.chat_history:
+             st.session_state.chat_history[st.session_state.current_chat_id]['messages'] = st.session_state.messages_rag
+        else:
+            # Should not happen with the current initialization, but for safety
+             st.session_state.chat_history[st.session_state.current_chat_id] = {
+                'messages': st.session_state.messages_rag,
+                'title': prompt[:30] + '...',
+                'date': datetime.now()
+            }
