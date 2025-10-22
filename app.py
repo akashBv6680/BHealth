@@ -677,7 +677,7 @@ elif menu == "🧠 RAG Chatbot":
     
     # Clean, concise title
     st.markdown("## Health RAG AI Chatbot 🧠")
-    st.markdown("IM specialized **Health Consultant AI** ")
+    st.markdown("I'M Your specialized **Health Consultant AI** ")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
