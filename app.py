@@ -501,7 +501,35 @@ elif menu == "👥 Patient Segmentation":
         kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
         pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
         st.success(f"Assigned Cohort: *Cohort {pred_label + 1}*")
-        # Visualization code remains the same...
+        st.write("The patient's profile is most similar to Cohort " + str(pred_label + 1) + ".")
+        st.subheader("Patient's Position within Cohorts")
+        pca = PCA(n_components=2)
+        X_pca = pca.fit_transform(Xs)
+        df_vis = pd.DataFrame(X_pca, columns=['PCA1', 'PCA2'])
+        df_vis['Cohort'] = kmeans.labels_
+        df_vis['Cohort'] = df_vis['Cohort'].astype(str)
+        df_vis.loc[len(df_vis)-1, 'Cohort'] = 'New Patient'
+        fig, ax = plt.subplots(figsize=(8, 6))
+        cohort_colors = {0: 'blue', 1: 'green', 2: 'purple', 'New Patient': 'red'}
+        for cohort_num in range(kmeans.n_clusters):
+            subset = df_vis[df_vis['Cohort'] == str(cohort_num)]
+            ax.scatter(subset['PCA1'], subset['PCA2'], alpha=0.7, label=f'Cohort {cohort_num+1}', color=cohort_colors[cohort_num])
+        new_patient_point = df_vis[df_vis['Cohort'] == 'New Patient']
+        ax.scatter(new_patient_point['PCA1'], new_patient_point['PCA2'], marker='*', s=300, label='New Patient', color=cohort_colors['New Patient'], edgecolor='black')
+        ax.set_title("Patient Cohorts (2D PCA Visualization)")
+        ax.set_xlabel("Principal Component 1")
+        ax.set_ylabel("Principal Component 2")
+        ax.legend()
+        st.pyplot(fig)
+        st.subheader("Cohort Characteristics")
+        cols = ["Age", "BMI", "SBP", "DBP", "Glucose", "Cholesterol"]
+        df_avg = pd.DataFrame(columns=cols)
+        for cohort_num in range(kmeans.n_clusters):
+            cluster_indices = np.where(kmeans.labels_ == cohort_num)[0]
+            avg_vals = np.mean(X_all[cluster_indices], axis=0)
+            df_avg.loc[f"Cohort {cohort_num+1}"] = avg_vals
+        st.dataframe(df_avg.style.format("{:.2f}"))
+        st.write("This table shows the average values for each key metric in each cohort.")
 
 # -------------------------
 # Module: Imaging Diagnostics
