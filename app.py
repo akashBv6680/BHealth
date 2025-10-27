@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 import torch
 import torchvision.transforms as T
 from PIL import Image
-import datetime # FIXED: Necessary for timestamp logging
+import datetime 
 
 # This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
 try:
@@ -491,14 +491,16 @@ if menu == "🧑‍⚕️ Risk Stratification":
         label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
         
-        st.session_state.module_interaction_log[menu] = {
+        log_entry = {
             "timestamp": current_time,
             "result": result_str
         }
+        st.session_state.module_interaction_log[menu] = log_entry
+
 
 # -------------------------
 # Module: Length of Stay Prediction
@@ -513,14 +515,16 @@ elif menu == "⏱ Length of Stay Prediction":
         los_est_rounded = int(round(los_est))
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
         
-        st.session_state.module_interaction_log[menu] = {
+        log_entry = {
             "timestamp": current_time,
             "result": result_str
         }
+        st.session_state.module_interaction_log[menu] = log_entry
+
 
 # -------------------------
 # Module: Patient Segmentation
@@ -541,14 +545,15 @@ elif menu == "👥 Patient Segmentation":
         cohort_label = f"Cohort {pred_label + 1}"
         st.success(f"Assigned Cohort: *{cohort_label}*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
         
-        st.session_state.module_interaction_log[menu] = {
+        log_entry = {
             "timestamp": current_time,
             "result": result_str
         }
+        st.session_state.module_interaction_log[menu] = log_entry
         # (Visualization code omitted for brevity)
 
 # -------------------------
@@ -570,14 +575,15 @@ elif menu == "🩻 Imaging Diagnostics":
                 result = dummy_diagnose_image(uploaded_file)
                 st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
                 
-                # *** DYNAMIC CONTEXT UPDATE FIX ***
+                # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
                 current_time = datetime.datetime.now().strftime("%H:%M:%S")
                 result_str = f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
                 
-                st.session_state.module_interaction_log[menu] = {
+                log_entry = {
                     "timestamp": current_time,
                     "result": result_str
                 }
+                st.session_state.module_interaction_log[menu] = log_entry
 
 # -------------------------
 # Module: Sequence Forecasting
@@ -602,14 +608,16 @@ elif menu == "📈 Sequence Forecasting":
         prediction = last_two[1] + (last_two[1] - last_two[0])
         st.success(f"Predicted next value: *{prediction:.2f}*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
         
-        st.session_state.module_interaction_log[menu] = {
+        log_entry = {
             "timestamp": current_time,
             "result": result_str
         }
+        st.session_state.module_interaction_log[menu] = log_entry
+
 
 # -------------------------
 # Module: Clinical Notes Analysis
@@ -630,14 +638,15 @@ elif menu == "📝 Clinical Notes Analysis":
                 analysis_result_desc = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
                 
-            # *** DYNAMIC CONTEXT UPDATE FIX ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Clinical Note Analysis performed. {analysis_result_desc} Note snippet: '{notes[:30]}...'."
             
-            st.session_state.module_interaction_log[menu] = {
+            log_entry = {
                 "timestamp": current_time,
                 "result": result_str
             }
+            st.session_state.module_interaction_log[menu] = log_entry
 
 
 # -------------------------
@@ -663,14 +672,15 @@ elif menu == "🌐 Translator":
             st.success("Translated Text:")
             st.write(translated_text)
             
-            # *** DYNAMIC CONTEXT UPDATE FIX ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
             
-            st.session_state.module_interaction_log[menu] = {
+            log_entry = {
                 "timestamp": current_time,
                 "result": result_str
             }
+            st.session_state.module_interaction_log[menu] = log_entry
 
 
 # -------------------------
@@ -692,14 +702,16 @@ elif menu == "💬 Sentiment Analysis":
                 sentiment_label = sentiment_result['label']
                 st.success(f"Sentiment: **{sentiment_label}** (Confidence: {sentiment_result['score']:.2f})")
                 
-            # *** DYNAMIC CONTEXT UPDATE FIX ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
             
-            st.session_state.module_interaction_log[menu] = {
+            log_entry = {
                 "timestamp": current_time,
                 "result": result_str
             }
+            st.session_state.module_interaction_log[menu] = log_entry
+
 
 # -------------------------
 # Module: Together Chat Assistant (General Purpose LLM)
