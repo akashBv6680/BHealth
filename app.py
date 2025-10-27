@@ -492,8 +492,11 @@ if menu == "🧑‍⚕️ Risk Stratification":
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
         
         # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+        # Using .format() instead of f-string for max compatibility and to avoid the parser error
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
-        result_str = f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
+        result_str = "Predicted Risk Level: {} (Score: {}). Input patient data: Age {}, BMI {}, Glucose {}.".format(
+            label, score, pdata['age'], pdata['bmi'], pdata['glucose']
+        )
         
         log_entry = {
             "timestamp": current_time,
@@ -616,10 +619,7 @@ elif menu == "📈 Sequence Forecasting":
             "timestamp": current_time,
             "result": result_str
         }
-
-        
         st.session_state.module_interaction_log[menu] = log_entry
-        
 
 
 # -------------------------
