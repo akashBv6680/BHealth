@@ -301,9 +301,10 @@ def rag_pipeline(query, selected_language):
     if st.session_state.module_interaction_log:
         log_entries = []
         for module, data in st.session_state.module_interaction_log.items():
-            log_entries.append(f" - {module} (Last Run: {data['timestamp']}) - Result: {data['result']}")
+            # Use simple concatenation here to avoid f-string issues in the log entries
+            log_entries.append(" - " + module + " (Last Run: " + data['timestamp'] + ") - Result: " + data['result'])
         
-        # Use f-string formatting safely outside of the context injection
+        # This part of the f-string is safe as it's only joining pre-calculated strings
         dynamic_context = (
             "### CURRENT USER SESSION HISTORY (CRITICAL CONTEXT)\n"
             "The user recently performed the following analysis/interactions within the HealthAI Suite:\n"
@@ -490,8 +491,7 @@ if menu == "🧑‍⚕️ Risk Stratification":
         label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
         
-        # *** DYNAMIC CONTEXT UPDATE ***
-        # FIX: Pre-calculate Timestamp and Result string to avoid f-string syntax error
+        # *** DYNAMIC CONTEXT UPDATE FIX ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
         
@@ -513,7 +513,7 @@ elif menu == "⏱ Length of Stay Prediction":
         los_est_rounded = int(round(los_est))
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
         
-        # *** DYNAMIC CONTEXT UPDATE ***
+        # *** DYNAMIC CONTEXT UPDATE FIX ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
         
@@ -541,7 +541,7 @@ elif menu == "👥 Patient Segmentation":
         cohort_label = f"Cohort {pred_label + 1}"
         st.success(f"Assigned Cohort: *{cohort_label}*")
         
-        # *** DYNAMIC CONTEXT UPDATE ***
+        # *** DYNAMIC CONTEXT UPDATE FIX ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
         
@@ -570,7 +570,7 @@ elif menu == "🩻 Imaging Diagnostics":
                 result = dummy_diagnose_image(uploaded_file)
                 st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
                 
-                # *** DYNAMIC CONTEXT UPDATE ***
+                # *** DYNAMIC CONTEXT UPDATE FIX ***
                 current_time = datetime.datetime.now().strftime("%H:%M:%S")
                 result_str = f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
                 
@@ -602,7 +602,7 @@ elif menu == "📈 Sequence Forecasting":
         prediction = last_two[1] + (last_two[1] - last_two[0])
         st.success(f"Predicted next value: *{prediction:.2f}*")
         
-        # *** DYNAMIC CONTEXT UPDATE ***
+        # *** DYNAMIC CONTEXT UPDATE FIX ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
         
@@ -625,14 +625,14 @@ elif menu == "📝 Clinical Notes Analysis":
             res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
             if res['label'] == 'error' or res['label'] == 'unknown':
                 st.error("Failed to analyze notes. Check model loading.")
-                analysis_result = "Analysis failed."
+                analysis_result_desc = "Analysis failed."
             else:
-                analysis_result = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
+                analysis_result_desc = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
                 
-            # *** DYNAMIC CONTEXT UPDATE ***
+            # *** DYNAMIC CONTEXT UPDATE FIX ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
-            result_str = f"Clinical Note Analysis performed. {analysis_result} Note snippet: '{notes[:30]}...'."
+            result_str = f"Clinical Note Analysis performed. {analysis_result_desc} Note snippet: '{notes[:30]}...'."
             
             st.session_state.module_interaction_log[menu] = {
                 "timestamp": current_time,
@@ -663,7 +663,7 @@ elif menu == "🌐 Translator":
             st.success("Translated Text:")
             st.write(translated_text)
             
-            # *** DYNAMIC CONTEXT UPDATE ***
+            # *** DYNAMIC CONTEXT UPDATE FIX ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
             
@@ -692,7 +692,7 @@ elif menu == "💬 Sentiment Analysis":
                 sentiment_label = sentiment_result['label']
                 st.success(f"Sentiment: **{sentiment_label}** (Confidence: {sentiment_result['score']:.2f})")
                 
-            # *** DYNAMIC CONTEXT UPDATE ***
+            # *** DYNAMIC CONTEXT UPDATE FIX ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
             
