@@ -491,18 +491,14 @@ if menu == "🧑‍⚕️ Risk Stratification":
         label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
-        # Using .format() instead of f-string for max compatibility and to avoid the parser error
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        # Using .format() instead of f-string for max compatibility and to avoid the parser error
         result_str = "Predicted Risk Level: {} (Score: {}). Input patient data: Age {}, BMI {}, Glucose {}.".format(
             label, score, pdata['age'], pdata['bmi'], pdata['glucose']
         )
         
-        log_entry = {
-            "timestamp": current_time,
-            "result": result_str
-        }
-        st.session_state.module_interaction_log[menu] = log_entry
+        st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
@@ -518,15 +514,11 @@ elif menu == "⏱ Length of Stay Prediction":
         los_est_rounded = int(round(los_est))
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
         
-        log_entry = {
-            "timestamp": current_time,
-            "result": result_str
-        }
-        st.session_state.module_interaction_log[menu] = log_entry
+        st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
@@ -548,15 +540,11 @@ elif menu == "👥 Patient Segmentation":
         cohort_label = f"Cohort {pred_label + 1}"
         st.success(f"Assigned Cohort: *{cohort_label}*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
         
-        log_entry = {
-            "timestamp": current_time,
-            "result": result_str
-        }
-        st.session_state.module_interaction_log[menu] = log_entry
+        st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
         # (Visualization code omitted for brevity)
 
 # -------------------------
@@ -578,15 +566,11 @@ elif menu == "🩻 Imaging Diagnostics":
                 result = dummy_diagnose_image(uploaded_file)
                 st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
                 
-                # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+                # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
                 current_time = datetime.datetime.now().strftime("%H:%M:%S")
                 result_str = f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
                 
-                log_entry = {
-                    "timestamp": current_time,
-                    "result": result_str
-                }
-                st.session_state.module_interaction_log[menu] = log_entry
+                st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 # -------------------------
 # Module: Sequence Forecasting
@@ -611,15 +595,11 @@ elif menu == "📈 Sequence Forecasting":
         prediction = last_two[1] + (last_two[1] - last_two[0])
         st.success(f"Predicted next value: *{prediction:.2f}*")
         
-        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+        # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
         current_time = datetime.datetime.now().strftime("%H:%M:%S")
         result_str = f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
         
-        log_entry = {
-            "timestamp": current_time,
-            "result": result_str
-        }
-        st.session_state.module_interaction_log[menu] = log_entry
+        st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
@@ -641,15 +621,11 @@ elif menu == "📝 Clinical Notes Analysis":
                 analysis_result_desc = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
                 
-            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Clinical Note Analysis performed. {analysis_result_desc} Note snippet: '{notes[:30]}...'."
             
-            log_entry = {
-                "timestamp": current_time,
-                "result": result_str
-            }
-            st.session_state.module_interaction_log[menu] = log_entry
+            st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
@@ -675,15 +651,11 @@ elif menu == "🌐 Translator":
             st.success("Translated Text:")
             st.write(translated_text)
             
-            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
             
-            log_entry = {
-                "timestamp": current_time,
-                "result": result_str
-            }
-            st.session_state.module_interaction_log[menu] = log_entry
+            st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
@@ -705,15 +677,11 @@ elif menu == "💬 Sentiment Analysis":
                 sentiment_label = sentiment_result['label']
                 st.success(f"Sentiment: **{sentiment_label}** (Confidence: {sentiment_result['score']:.2f})")
                 
-            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST) ***
+            # *** DYNAMIC CONTEXT UPDATE FIX (ULTRA-ROBUST - Single-line assignment) ***
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
             result_str = f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
             
-            log_entry = {
-                "timestamp": current_time,
-                "result": result_str
-            }
-            st.session_state.module_interaction_log[menu] = log_entry
+            st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 
 # -------------------------
