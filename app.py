@@ -110,13 +110,42 @@ This is a **general-purpose chat assistant** powered by the Google Gemini model.
 ### 🧠 RAG Chatbot Module
 This is a **specialized Health Consultant AI**. It uses **Retrieval-Augmented Generation (RAG)**, meaning it first consults its fixed internal **Knowledge Base (KB)** (containing detailed common health topics) and, if the answer is outside the KB, it automatically uses the **Google Search tool** to find current information and provides **citations** for reliability. It acts as the primary expert query engine.
 
-### Common Health Topics (Detailed KB)
-The RAG chatbot's internal KB also contains detailed information on common conditions.
-**Common Cold and Flu:** Viral infections of the respiratory tract. Cold is milder; flu is severe, often with fever and body aches. Management: rest, hydration, OTC meds.
-**Diabetes (Type 2) Management:** Chronic high blood sugar. Managed by diet, exercise (150 mins/week), Metformin, and monitoring. Risks: heart disease, nerve damage.
-**Hypertension (High Blood Pressure):** High force against artery walls. Often silent. Treatment: DASH diet, exercise, ACE inhibitors, diuretics. Normal BP < 120/80 mmHg.
-**Asthma Control:** Narrowing and swelling of airways. Symptoms: wheezing, shortness of breath. Treatment: Reliever (quick) and Preventer (daily) inhalers.
-**Mental Health:** Depression (persistent sadness) and Anxiety (excessive worry). Treated with psychotherapy (CBT) and medication (antidepressants).
+### Common Health Topics (Detailed KB) - MASSIVELY EXPANDED
+
+#### 1. Cardiovascular & Metabolic Health
+* **Ischemic Heart Disease (CAD):** Leading global cause of death. Plaque buildup (atherosclerosis) in coronary arteries. Management: statins, antiplatelet drugs, diet/exercise.
+* **Stroke (Cerebrovascular Disease):** Blood supply disruption to the brain (ischemic or hemorrhagic). **Symptoms (FAST):** Face drooping, Arm weakness, Speech difficulty, Time to call emergency. Prevention is key (BP control).
+* **Hypertension (High Blood Pressure):** Chronic high force against artery walls ($> 130/80\text{ mmHg}$). Treatment: DASH diet, exercise, ACE inhibitors, diuretics.
+* **Diabetes (Type 2) Management:** Chronic high blood sugar. Management: diet, min. 150 mins/week exercise, Metformin, regular A1c testing. Risks: heart/nerve/kidney damage.
+* **High Cholesterol:** High levels of LDL ("bad") cholesterol increase plaque risk. Management: low-saturated/trans-fat diet, statins.
+
+#### 2. Respiratory & Pulmonary Health
+* **Chronic Obstructive Pulmonary Disease (COPD):** Progressive diseases (bronchitis, emphysema) causing obstructed airflow. **Primary Cause:** Smoking. Management: bronchodilators, steroids, oxygen.
+* **Asthma Control:** Chronic inflammation and narrowing of airways. Symptoms: wheezing, shortness of breath. Treatment: **Reliever** (quick-acting) and **Preventer** (daily inhaled steroids).
+* **Pneumonia:** Lung infection causing air sacs to fill with fluid. Causes: Bacteria, viruses. Treatment: antibiotics (if bacterial), rest, fluids.
+* **Common Cold and Flu:** Viral infections of the respiratory tract. Cold is milder; Flu is severe (fever, body aches). Prevention: Flu vaccination. Management: rest, hydration, OTC meds.
+
+#### 3. Infectious Diseases & Immunity
+* **HIV/AIDS:** Viral infection that impairs the immune system. Transmission: Specific body fluids (unprotected sex, shared needles). Management: Antiretroviral Therapy (ART).
+* **Tuberculosis (TB):** Bacterial infection primarily affecting the lungs. Transmission: Air droplets. Requires a long course of antibiotics.
+* **Sexually Transmitted Infections (STIs):** Infections (e.g., Chlamydia, HPV) spread through sexual contact. Prevention: Condoms, regular screening.
+* **Vaccines and Immunization:** Stimulates the immune system to produce antibodies for protection (e.g., COVID-19, MMR, Tdap).
+
+#### 4. Musculoskeletal & Bone Health
+* **Arthritis:** Joint inflammation (pain, stiffness). Types: Osteoarthritis (wear-and-tear) and Rheumatoid Arthritis (autoimmune). Management: physical therapy, NSAIDs, DMARDS (for RA).
+* **Osteoporosis:** Weak, brittle bones prone to fracture. Prevention/Management: Calcium, Vitamin D, weight-bearing exercise, bisphosphonates.
+* **Back Pain:** Often caused by strain or disk issues. Management: rest, ice/heat, stretching, physical therapy.
+
+#### 5. Mental & Neurological Health
+* **Mental Health (Depression and Anxiety):** **Depression** (persistent sadness); **Anxiety** (excessive worry). Treatment: **Psychotherapy** (CBT), **Medication**, lifestyle adjustments.
+* **Alzheimer's Disease and Dementia:** Progressive neurological disorders causing memory loss and cognitive decline. Management: supportive care, cognitive training, symptom medication.
+* **Headaches and Migraines:** Headaches are common; **Migraines** are severe, often unilateral with throbbing pain. Treatment: OTC relief, prescription triptans, trigger avoidance.
+
+#### 6. General Wellness, Lifestyle, and Prevention
+* **Nutrition and Diet:** Balanced intake (fruits, whole grains, lean protein). Specialized diets (DASH, Mediterranean).
+* **Physical Activity:** Regular exercise is crucial (e.g., $150$ mins moderate-intensity/week). Benefits: weight management, improved mood, chronic disease prevention.
+* **Sleep Health:** Most adults need **7-9 hours** of quality sleep. Poor sleep impairs function. Tips: consistent schedule, dark/cool room.
+* **Smoking Cessation:** Leading preventable cause of death. Methods: Nicotine Replacement Therapy, medication, counseling.
 """
 
 # -------------------------
@@ -277,10 +306,22 @@ def process_and_store_documents(documents):
         ids=document_ids
     )
 
+# app.py - Updated RAG/Gemini core functions
+
+# ... (Previous functions: get_collection, clear_and_reload_kb, call_gemini_api, split_documents, process_and_store_documents)
+
 def retrieve_documents(query, n_results=5):
-    """Retrieves relevant documents from ChromaDB."""
+    """
+    Retrieves relevant documents and distances from ChromaDB.
+
+    Returns: Tuple of (list of documents, list of distances)
+    """
     collection = get_collection()
     model = st.session_state.model
+    
+    # Handle empty collection case
+    if collection.count() == 0:
+        return [], []
     
     query_embedding = model.encode(query).tolist()
     
@@ -290,24 +331,61 @@ def retrieve_documents(query, n_results=5):
         include=['documents', 'distances']
     )
     
-    return results['documents'][0] if results['documents'] else []
+    # results['documents'] is a list of lists (one query = one list of documents)
+    # results['distances'] is a list of lists (one query = one list of distances)
+    docs = results['documents'][0] if results['documents'] else []
+    dists = results['distances'][0] if results['distances'] else []
+    
+    return docs, dists
 
 def rag_pipeline(query, selected_language):
     """
-    Executes the RAG pipeline with an LLM fallback to Google Search tool for OOKB queries.
+    Executes the RAG pipeline with a distance-based fallback to Google Search tool for OOKB queries.
     """
-    collection = get_collection()
-    relevant_docs = retrieve_documents(query)
     
-    # Determine if we need to use the KB or fall back to external search
-    use_external_search = len(relevant_docs) < 3 or collection.count() == 0
+    # 1. Retrieve documents and distance scores from the internal KB
+    relevant_docs, distances = retrieve_documents(query)
+    
+    # 2. Define the OOKB Fallback Logic
+    # The ChromaDB 'distance' is generally the L2 distance, where LOWER is BETTER (more similar).
+    # A standard threshold for a good match using all-MiniLM-L6-v2 embeddings is a distance < 0.4.
+    DISTANCE_THRESHOLD = 0.45 
+    
+    # Check if the BEST match (lowest distance) is below the threshold.
+    # If KB is empty, or the best match is far away (distance > threshold), use external search.
+    is_kb_sufficient = (len(distances) > 0) and (min(distances) < DISTANCE_THRESHOLD)
 
-    if use_external_search: 
-        # --- External Search (Consultant Mode with Citations) ---
+    if is_kb_sufficient:
+        
+        # --- PATH A: Internal RAG (KB Context) ---
+        
+        context = "\n".join(relevant_docs)
+        
+        rag_system_instruction = (
+            "You are a highly specialized and medically accurate Health Consultant AI. "
+            "Use **ONLY** the provided context to answer the user's question. "
+            "Your answer should be detailed and clarifying, acting as a good consultant. "
+            "If the context does not contain the answer, you MUST politely state, "
+            "'I apologize, but my specific knowledge base (KB) does not contain information to answer that question. If this is about a very current or specialized topic, please ask me again as I can use Google Search to find external information.' "
+            f"The final response MUST be in {selected_language}."
+        )
+        
+        prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
+        
+        response_json = call_gemini_api(
+            prompt=prompt, 
+            system_instruction=rag_system_instruction,
+            # No tools are passed here, forcing model to use only the prompt context
+        )
+        
+    else:
+        
+        # --- PATH B: Fallback to Google Search (OOKB/Current Events) ---
+        
         system_instruction = (
             f"You are a friendly, helpful, and highly knowledgeable health consultant. "
-            f"You must use the Google Search tool to find reliable, current health information "
-            f"to answer the user's query: '{query}'. "
+            f"Your internal knowledge base could not answer the question, so you **MUST** use the Google Search tool "
+            f"to find reliable, current health information to answer the user's query: '{query}'. "
             f"Your response must be comprehensive, easy to understand, and provide advice as a good consultant would. "
             f"You MUST cite all external sources used with numbered links at the end of your response. "
             f"The final response MUST be in {selected_language}."
@@ -321,23 +399,6 @@ def rag_pipeline(query, selected_language):
             tools=st.session_state.google_search_tool # Use the search tool
         )
         
-    else:
-        # --- Internal RAG (KB Context) ---
-        
-        context = "\n".join(relevant_docs)
-        
-        rag_system_instruction = (
-            "You are a medical assistant and health consultant. Use ONLY the provided context to answer the user's question. "
-            "Your answer should be detailed and clarifying, acting as a good consultant. "
-            "If the context does not contain the answer, you MUST politely state, "
-            "'I apologize, but my specific knowledge base does not contain information to answer that question.' "
-            f"The final response MUST be in {selected_language}"
-        )
-        
-        prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
-        
-        response_json = call_gemini_api(prompt, system_instruction=rag_system_instruction)
-
     if 'error' in response_json:
         return f"An error occurred while generating the response: {response_json['error']}."
     
