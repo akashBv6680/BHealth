@@ -15,7 +15,7 @@ from typing import List, Dict, Any
 import torch
 import torchvision.transforms as T
 from PIL import Image
-import datetime # <--- FIXED: Necessary for timestamp logging
+import datetime # FIXED: Necessary for timestamp logging
 
 # This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
 try:
@@ -123,7 +123,6 @@ A specialized Health Consultant AI using Retrieval-Augmented Generation (RAG). I
 def initialize_rag_dependencies():
     """Initializes ChromaDB client, SentenceTransformer model, and Gemini client."""
     try:
-        # Use a temporary directory for ChromaDB storage
         db_path = tempfile.mkdtemp()
         db_client = chromadb.PersistentClient(path=db_path)
         
@@ -304,6 +303,7 @@ def rag_pipeline(query, selected_language):
         for module, data in st.session_state.module_interaction_log.items():
             log_entries.append(f" - {module} (Last Run: {data['timestamp']}) - Result: {data['result']}")
         
+        # Use f-string formatting safely outside of the context injection
         dynamic_context = (
             "### CURRENT USER SESSION HISTORY (CRITICAL CONTEXT)\n"
             "The user recently performed the following analysis/interactions within the HealthAI Suite:\n"
@@ -491,9 +491,13 @@ if menu == "🧑‍⚕️ Risk Stratification":
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
         
         # *** DYNAMIC CONTEXT UPDATE ***
+        # FIX: Pre-calculate Timestamp and Result string to avoid f-string syntax error
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        result_str = f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
+        
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-            "result": f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
+            "timestamp": current_time,
+            "result": result_str
         }
 
 # -------------------------
@@ -510,9 +514,12 @@ elif menu == "⏱ Length of Stay Prediction":
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
         
         # *** DYNAMIC CONTEXT UPDATE ***
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        result_str = f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
+        
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-            "result": f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
+            "timestamp": current_time,
+            "result": result_str
         }
 
 # -------------------------
@@ -535,9 +542,12 @@ elif menu == "👥 Patient Segmentation":
         st.success(f"Assigned Cohort: *{cohort_label}*")
         
         # *** DYNAMIC CONTEXT UPDATE ***
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        result_str = f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
+        
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-            "result": f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
+            "timestamp": current_time,
+            "result": result_str
         }
         # (Visualization code omitted for brevity)
 
@@ -561,9 +571,12 @@ elif menu == "🩻 Imaging Diagnostics":
                 st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
                 
                 # *** DYNAMIC CONTEXT UPDATE ***
+                current_time = datetime.datetime.now().strftime("%H:%M:%S")
+                result_str = f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
+                
                 st.session_state.module_interaction_log[menu] = {
-                    "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-                    "result": f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
+                    "timestamp": current_time,
+                    "result": result_str
                 }
 
 # -------------------------
@@ -590,9 +603,12 @@ elif menu == "📈 Sequence Forecasting":
         st.success(f"Predicted next value: *{prediction:.2f}*")
         
         # *** DYNAMIC CONTEXT UPDATE ***
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        result_str = f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
+        
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-            "result": f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
+            "timestamp": current_time,
+            "result": result_str
         }
 
 # -------------------------
@@ -615,9 +631,12 @@ elif menu == "📝 Clinical Notes Analysis":
                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
                 
             # *** DYNAMIC CONTEXT UPDATE ***
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            result_str = f"Clinical Note Analysis performed. {analysis_result} Note snippet: '{notes[:30]}...'."
+            
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-                "result": f"Clinical Note Analysis performed. {analysis_result} Note snippet: '{notes[:30]}...'."
+                "timestamp": current_time,
+                "result": result_str
             }
 
 
@@ -645,9 +664,12 @@ elif menu == "🌐 Translator":
             st.write(translated_text)
             
             # *** DYNAMIC CONTEXT UPDATE ***
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            result_str = f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
+            
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-                "result": f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
+                "timestamp": current_time,
+                "result": result_str
             }
 
 
@@ -671,9 +693,12 @@ elif menu == "💬 Sentiment Analysis":
                 st.success(f"Sentiment: **{sentiment_label}** (Confidence: {sentiment_result['score']:.2f})")
                 
             # *** DYNAMIC CONTEXT UPDATE ***
+            current_time = datetime.datetime.now().strftime("%H:%M:%S")
+            result_str = f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
+            
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
-                "result": f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
+                "timestamp": current_time,
+                "result": result_str
             }
 
 # -------------------------
