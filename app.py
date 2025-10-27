@@ -52,7 +52,6 @@ except ImportError:
     genai = None
     APIError = None
     types = None
-    # st.warning("Google GenAI SDK not found. LLM features will not work.") # Suppressed for final code clarity
 
 # -------------------------
 # App config
@@ -60,7 +59,6 @@ except ImportError:
 st.set_page_config(page_title="HealthAI Suite", page_icon="🩺", layout="wide")
 
 # Gemini AI config
-# NOTE: Ensure GEMINI_API_KEY is set in your Streamlit secrets (secrets.toml)
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
@@ -75,48 +73,45 @@ LANGUAGE_DICT = {
 # -------------------------
 COLLECTION_NAME = "rag_documents"
 
-# --- MASSIVELY EXPANDED KNOWLEDGE BASE (Including Health Topics AND Module Descriptions) ---
+# --- KNOWLEDGE BASE (Includes Health Topics and Module Descriptions) ---
 KNOWLEDGE_BASE_TEXT = """
 ### HealthAI Suite Modules Overview
-The HealthAI Suite is an integrated platform offering ten key modules for intelligent healthcare analytics. These modules cover risk assessment, predictive modeling, patient management, clinical text processing, and diagnostic support. Clients and users can navigate to any module via the sidebar to perform a specific function, or use the RAG Chatbot for a general consultation.
+The HealthAI Suite is an integrated platform offering ten key modules for intelligent healthcare analytics. These modules cover risk assessment, predictive modeling, patient management, clinical text processing, and diagnostic support.
 
 ### 🧑‍⚕️ Risk Stratification Module
-This module assesses a patient's **overall health risk** (Low, Moderate, or High) based on structured inputs like age, BMI, blood pressure (SBP/DBP), glucose, cholesterol, and smoking status. It helps clinicians quickly identify patients who may require intensive intervention or monitoring.
+Assesses a patient's overall health risk (Low, Moderate, or High) based on structured inputs like age, BMI, blood pressure, glucose, cholesterol, and smoking status. Used to identify patients needing intensive intervention.
 
 ### ⏱ Length of Stay Prediction Module
-This tool estimates the **expected number of days** a patient will remain hospitalized. It uses factors like admission metrics (age, vital signs, initial labs) to forecast resource utilization and aid in discharge planning and bed management.
+Estimates the expected number of days a patient will remain hospitalized using admission metrics. Aids in discharge planning and bed management.
 
 ### 👥 Patient Segmentation Module
-This module uses clustering techniques (like K-Means) on various patient health metrics to **group patients into distinct cohorts**. This helps identify common patient profiles, tailor care pathways, and analyze outcomes based on specific, shared characteristics.
+Uses clustering (K-Means) on health metrics to group patients into distinct cohorts, helping tailor care pathways.
 
 ### 🩻 Imaging Diagnostics Module
-This module is designed to support clinicians by performing **AI-driven analysis of medical images** (e.g., X-rays, CT scans). It helps detect, classify, and localize pathologies (like pneumonia, fractures, or masses), offering a diagnostic prediction and a confidence score.
+Simulates AI-driven analysis of medical images (X-rays) to detect and classify pathologies (pneumonia, fractures, masses), providing a diagnostic prediction and confidence score.
 
 ### 📈 Sequence Forecasting Module
-This module is specialized for **time-series data**. It analyzes a historical sequence of a patient's metric (e.g., blood sugar, temperature) and predicts the **next value in the sequence**. This is useful for anticipating future patient states.
+Analyzes a historical time-series of a patient's metric (e.g., blood sugar) and predicts the next value in the sequence, useful for anticipating future patient states.
 
 ### 📝 Clinical Notes Analysis Module
-This tool processes **unstructured clinical text** (doctor's notes, discharge summaries) to extract meaningful insights. It can classify the type of note or analyze the emotional tone to aid in quality control and information extraction.
+Processes unstructured clinical text (notes) to extract insights, such as classifying the primary emotional tone or type of note.
 
 ### 🌐 Translator Module
-The Translator provides real-time, bi-directional translation for **clinical and patient-facing text** between various languages (e.g., English, Spanish, Hindi). This is crucial for improving communication between multilingual staff and patients.
+Provides real-time, bi-directional translation for clinical and patient-facing text between various languages, crucial for multilingual communication.
 
 ### 💬 Sentiment Analysis Module
-This module is dedicated to analyzing **patient feedback** or reviews to automatically determine the **emotional tone** (Positive, Negative, or Neutral). It helps healthcare providers quickly gauge patient satisfaction and pinpoint areas for operational improvement.
+Analyzes patient feedback or reviews to automatically determine the emotional tone (Positive, Negative, or Neutral) to gauge patient satisfaction.
 
 ### 💡 Together Chat Assistant Module
-This is a **general-purpose chat assistant** powered by the Google Gemini model. It is designed for quick, general inquiries and conversation about non-specific health topics, acting as a general-knowledge resource.
+A general-purpose chat assistant powered by the Google Gemini model for quick, non-specific health inquiries.
 
 ### 🧠 RAG Chatbot Module
-This is a **specialized Health Consultant AI**. It uses **Retrieval-Augmented Generation (RAG)**, meaning it first consults its fixed internal **Knowledge Base (KB)** (containing detailed common health topics) and, if the answer is outside the KB, it automatically uses the **Google Search tool** to find current information and provides **citations** for reliability. It acts as the primary expert query engine.
+A specialized Health Consultant AI using Retrieval-Augmented Generation (RAG). It consults its internal KB (containing module and health details) and falls back to the Google Search tool for external, cited information.
 
 ### Common Health Topics (Detailed KB)
-The RAG chatbot's internal KB also contains detailed information on common conditions.
-**Common Cold and Flu:** Viral infections of the respiratory tract. Cold is milder; flu is severe, often with fever and body aches. Management: rest, hydration, OTC meds.
-**Diabetes (Type 2) Management:** Chronic high blood sugar. Managed by diet, exercise (150 mins/week), Metformin, and monitoring. Risks: heart disease, nerve damage.
-**Hypertension (High Blood Pressure):** High force against artery walls. Often silent. Treatment: DASH diet, exercise, ACE inhibitors, diuretics. Normal BP < 120/80 mmHg.
-**Asthma Control:** Narrowing and swelling of airways. Symptoms: wheezing, shortness of breath. Treatment: Reliever (quick) and Preventer (daily) inhalers.
-**Mental Health:** Depression (persistent sadness) and Anxiety (excessive worry). Treated with psychotherapy (CBT) and medication (antidepressants).
+**Common Cold and Flu:** Viral infections of the respiratory tract. Cold is milder; flu is severe. Management: rest, hydration, OTC meds.
+**Diabetes (Type 2) Management:** Chronic high blood sugar. Managed by diet, exercise (150 mins/week), Metformin. Risks: heart disease.
+**Hypertension (High Blood Pressure):** High force against artery walls. Treatment: DASH diet, exercise, medications. Normal BP < 120/80 mmHg.
 """
 
 # -------------------------
@@ -126,14 +121,10 @@ The RAG chatbot's internal KB also contains detailed information on common condi
 def initialize_rag_dependencies():
     """Initializes ChromaDB client, SentenceTransformer model, and Gemini client."""
     try:
-        # Use a temporary directory for ChromaDB storage
         db_path = tempfile.mkdtemp()
         db_client = chromadb.PersistentClient(path=db_path)
-        
-        # Load embedding model
         model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
         
-        # Initialize Gemini Client and configure Google Search Tool
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             google_search_tool = [types.Tool(google_search={})] 
@@ -148,9 +139,10 @@ def initialize_rag_dependencies():
         st.error(f"An error occurred during RAG dependency initialization: {e}. Check dependencies and API Key.")
         st.stop()
 
-# --- Placeholder Model Loaders (omitted for brevity, assume they are present) ---
+# --- Placeholder Model Loaders (omitted for brevity) ---
 @st.cache_resource(show_spinner=False)
 def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
+    # ... (function body)
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -161,6 +153,7 @@ def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion")
 
 @st.cache_resource(show_spinner=False)
 def load_translation_model(src_lang="en", tgt_lang="hi"):
+    # ... (function body)
     pair = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
     try:
         tkn = MarianTokenizer.from_pretrained(pair)
@@ -172,6 +165,7 @@ def load_translation_model(src_lang="en", tgt_lang="hi"):
 
 @st.cache_resource(show_spinner=False)
 def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-latest"):
+    # ... (function body)
     try:
         tok = AutoTokenizer.from_pretrained(model_name)
         m = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -182,6 +176,7 @@ def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-l
 
 @st.cache_resource(show_spinner=False)
 def load_tabular_models():
+    # ... (function body)
     clf = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestClassifier(n_estimators=50, random_state=42))])
     reg = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestRegressor(n_estimators=50, random_state=42))])
     return clf, reg
@@ -205,22 +200,20 @@ def clear_and_reload_kb():
         
     db_client = st.session_state.db_client
     
-    # 1. Delete the existing collection
     try:
         db_client.delete_collection(name=COLLECTION_NAME)
     except Exception:
-        pass # Ignore if collection doesn't exist
+        pass
     
-    # 2. Process and store the default documents
     with st.spinner("Processing new knowledge base..."):
         documents = split_documents(KNOWLEDGE_BASE_TEXT)
         process_and_store_documents(documents)
     
-    # Reset chat history
-    kb_count = get_collection().count()
+    # Reset chat history and interaction log
     st.session_state["messages_rag"] = [
-        {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. The Knowledge Base has been reset and now contains **{kb_count}** chunks, including information on the HealthAI Suite modules. Ask me anything!"}
+        {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. The Knowledge Base has been reset. Ask me anything!"}
     ]
+    st.session_state.module_interaction_log = {} # Reset the dynamic log
     st.rerun()
 
 def call_gemini_api(prompt, model_name="gemini-2.5-flash", system_instruction="You are a helpful health assistant.", tools=None, max_retries=5):
@@ -292,14 +285,30 @@ def retrieve_documents(query, n_results=5):
     
     return results['documents'][0] if results['documents'] else []
 
+
+# *** CRITICAL CHANGE: RAG PIPELINE WITH DYNAMIC CONTEXT INJECTION ***
 def rag_pipeline(query, selected_language):
     """
-    Executes the RAG pipeline with an LLM fallback to Google Search tool for OOKB queries.
+    Executes the RAG pipeline with dynamic session context and LLM fallback.
     """
     collection = get_collection()
     relevant_docs = retrieve_documents(query)
     
-    # Determine if we need to use the KB or fall back to external search
+    # 1. GENERATE DYNAMIC SESSION CONTEXT
+    dynamic_context = ""
+    if st.session_state.module_interaction_log:
+        log_entries = []
+        for module, data in st.session_state.module_interaction_log.items():
+            log_entries.append(f" - {module} (Last Run: {data['timestamp']}) - Result: {data['result']}")
+        
+        dynamic_context = (
+            "### CURRENT USER SESSION HISTORY (CRITICAL CONTEXT)\n"
+            "The user recently performed the following analysis/interactions within the HealthAI Suite:\n"
+            f"{'\\n'.join(log_entries)}\n"
+            "You MUST use this history if it is relevant to the user's current question, otherwise ignore it.\n\n"
+        )
+    
+    # 2. DETERMINE RAG STRATEGY (KB or External Search)
     use_external_search = len(relevant_docs) < 3 or collection.count() == 0
 
     if use_external_search: 
@@ -313,28 +322,37 @@ def rag_pipeline(query, selected_language):
             f"The final response MUST be in {selected_language}."
         )
         
-        fallback_query = f"Provide a detailed, consultant-style answer to the user's health question: {query}. Ensure all facts are supported by your search results."
+        # Inject dynamic context into the prompt
+        fallback_query = (
+            f"{dynamic_context}"
+            f"Provide a detailed, consultant-style answer to the user's health question: {query}. "
+            "Ensure all facts are supported by your search results or the provided user history."
+        )
         
         response_json = call_gemini_api(
             prompt=fallback_query, 
             system_instruction=system_instruction,
-            tools=st.session_state.google_search_tool # Use the search tool
+            tools=st.session_state.google_search_tool
         )
         
     else:
-        # --- Internal RAG (KB Context) ---
+        # --- Internal RAG (KB Context + Dynamic Context) ---
         
-        context = "\n".join(relevant_docs)
+        kb_context = "\n".join(relevant_docs)
         
         rag_system_instruction = (
-            "You are a medical assistant and health consultant. Use ONLY the provided context to answer the user's question. "
-            "Your answer should be detailed and clarifying, acting as a good consultant. "
-            "If the context does not contain the answer, you MUST politely state, "
+            "You are a medical assistant and health consultant. Use the provided context AND the user's session history to answer the question. "
+            "Your answer should be detailed and clarifying. "
+            "If neither the static context nor the history contains the answer, you MUST politely state, "
             "'I apologize, but my specific knowledge base does not contain information to answer that question.' "
             f"The final response MUST be in {selected_language}"
         )
         
-        prompt = f"Context: {context}\n\nQuestion: {query}\n\nAnswer:"
+        prompt = (
+            f"{dynamic_context}"
+            f"### STATIC KNOWLEDGE BASE CONTEXT\n{kb_context}\n\n"
+            f"Question: {query}\n\nAnswer:"
+        )
         
         response_json = call_gemini_api(prompt, system_instruction=rag_system_instruction)
 
@@ -346,47 +364,48 @@ def rag_pipeline(query, selected_language):
     except KeyError:
         return "Failed to get a valid response from the model."
 
-# -------------------------
-# App UI: Sidebar + Navigation
-# -------------------------
-st.sidebar.title("HealthAI Suite")
-# FULL CORRECTED MENU LIST
-menu = st.sidebar.radio("Select Module", [
-    "🧑‍⚕️ Risk Stratification",
-    "⏱ Length of Stay Prediction",
-    "👥 Patient Segmentation",
-    "🩻 Imaging Diagnostics",
-    "📈 Sequence Forecasting",
-    "📝 Clinical Notes Analysis",
-    "🌐 Translator",
-    "💬 Sentiment Analysis",
-    "💡 Together Chat Assistant",
-    "🧠 RAG Chatbot"
-])
 
-# Initialize session state for language selection
-if 'selected_language' not in st.session_state:
-    st.session_state.selected_language = "English"
+# --- Other Utility Functions (omitted for brevity) ---
+def text_classify(text: str, tokenizer, model, labels=None):
+    if tokenizer is None or model is None: return {"label": "unknown", "score": 0.0}
+    try:
+        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+        with torch.no_grad(): outputs = model(**inputs)
+        logits = outputs.logits
+        probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
+        pred = int(np.argmax(probs))
+        if labels: lbl = labels[pred]
+        else: lbl = str(pred)
+        return {"label": lbl, "score": float(probs[pred])}
+    except Exception as e: return {"label": "error", "score": 0.0}
 
-# Initialization block for RAG/Gemini dependencies and KB loading
-if menu == "🧠 RAG Chatbot" or menu == "💡 Together Chat Assistant":
-    if 'db_client' not in st.session_state:
-        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
+def translate_text(text: str, src: str, tgt: str):
+    tkn, m = load_translation_model(src, tgt)
+    if tkn is None or m is None: return "Translation model not available for this pair; returning original text."
+    inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
+    with torch.no_grad(): translated = m.generate(**inputs)
+    out = tkn.batch_decode(translated, skip_special_tokens=True)[0]
+    return out
+
+def sentiment_text(text: str, tokenizer, model):
+    if tokenizer is None or model is None: return {"label": "unknown", "score": 0.0}
+    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
+    with torch.no_grad():
+        outputs = model(**inputs)
+        probs = torch.nn.functional.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
+        pred_label = np.argmax(probs)
+        labels = ["Negative", "Neutral", "Positive"]
+        return {"label": labels[pred_label], "score": float(probs[pred_label])}
         
-        # Load the default knowledge base only if it's the RAG Chatbot AND the KB is empty
-        if st.session_state.db_client and get_collection().count() == 0:
-            with st.spinner("Loading and processing default knowledge base (large)..."):
-                documents = split_documents(KNOWLEDGE_BASE_TEXT)
-                process_and_store_documents(documents)
-                st.toast(f"Loaded {get_collection().count()} KB chunks.", icon="📚")
-
-# Initialize shared resources for other modules (using dummy loaders for non-LLM)
-text_tok, text_model = load_text_classifier()
-sent_tok, sent_model = load_sentiment_model()
-demo_clf, demo_reg = load_tabular_models()
-
-
-# --- Utility Functions (Duplicated/Re-defined for completeness - only new ones are relevant) ---
+def preprocess_structured_input(data: Dict[str, Any]):
+    numeric_keys = ["age", "bmi", "sbp", "dbp", "glucose", "cholesterol"]
+    vals = []
+    for k in numeric_keys:
+        v = data.get(k, 0.0)
+        try: vals.append(float(v))
+        except Exception: vals.append(0.0)
+    return np.array(vals).reshape(1, -1)
+    
 def patient_input_form(key_prefix="p"):
     with st.form(key=f"form_{key_prefix}"):
         col1, col2 = st.columns(2)
@@ -406,56 +425,52 @@ def patient_input_form(key_prefix="p"):
         "glucose": float(glucose), "cholesterol": float(cholesterol), "smoker": smoker == "Yes"
     }
     return submitted, data
-    
-def text_classify(text: str, tokenizer, model, labels=None):
-    # ... (function body for classification)
-    if tokenizer is None or model is None: return {"label": "unknown", "score": 0.0}
-    try:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-        with torch.no_grad(): outputs = model(**inputs)
-        logits = outputs.logits
-        probs = torch.nn.functional.softmax(logits, dim=-1).cpu().numpy()[0]
-        pred = int(np.argmax(probs))
-        if labels: lbl = labels[pred]
-        else: lbl = str(pred)
-        return {"label": lbl, "score": float(probs[pred])}
-    except Exception as e: return {"label": "error", "score": 0.0}
 
-def translate_text(text: str, src: str, tgt: str):
-    # ... (function body for translation)
-    tkn, m = load_translation_model(src, tgt)
-    if tkn is None or m is None: return "Translation model not available for this pair; returning original text."
-    inputs = tkn.prepare_seq2seq_batch([text], return_tensors="pt")
-    with torch.no_grad(): translated = m.generate(**inputs)
-    out = tkn.batch_decode(translated, skip_special_tokens=True)[0]
-    return out
 
-def sentiment_text(text: str, tokenizer, model):
-    # ... (function body for sentiment)
-    if tokenizer is None or model is None: return {"label": "unknown", "score": 0.0}
-    inputs = tokenizer(text, return_tensors="pt", truncation=True, padding=True)
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs = torch.nn.functional.softmax(outputs.logits, dim=-1).cpu().numpy()[0]
-        pred_label = np.argmax(probs)
-        labels = ["Negative", "Neutral", "Positive"]
-        return {"label": labels[pred_label], "score": float(probs[pred_label])}
+# -------------------------
+# App UI: Sidebar + Navigation
+# -------------------------
+st.sidebar.title("HealthAI Suite")
+menu = st.sidebar.radio("Select Module", [
+    "🧑‍⚕️ Risk Stratification",
+    "⏱ Length of Stay Prediction",
+    "👥 Patient Segmentation",
+    "🩻 Imaging Diagnostics",
+    "📈 Sequence Forecasting",
+    "📝 Clinical Notes Analysis",
+    "🌐 Translator",
+    "💬 Sentiment Analysis",
+    "💡 Together Chat Assistant",
+    "🧠 RAG Chatbot"
+])
+
+# Initialize session state variables
+if 'selected_language' not in st.session_state:
+    st.session_state.selected_language = "English"
+if 'module_interaction_log' not in st.session_state:
+    st.session_state.module_interaction_log = {}
+
+# Initialization block for RAG/Gemini dependencies and KB loading
+if menu == "🧠 RAG Chatbot" or menu == "💡 Together Chat Assistant":
+    if 'db_client' not in st.session_state:
+        st.session_state.db_client, st.session_state.model, st.session_state.gemini_client, st.session_state.google_search_tool = initialize_rag_dependencies()
         
-def preprocess_structured_input(data: Dict[str, Any]):
-    # ... (function body for preprocessing)
-    numeric_keys = ["age", "bmi", "sbp", "dbp", "glucose", "cholesterol"]
-    vals = []
-    for k in numeric_keys:
-        v = data.get(k, 0.0)
-        try: vals.append(float(v))
-        except Exception: vals.append(0.0)
-    return np.array(vals).reshape(1, -1)
+        if st.session_state.db_client and get_collection().count() == 0:
+            with st.spinner("Loading and processing default knowledge base..."):
+                documents = split_documents(KNOWLEDGE_BASE_TEXT)
+                process_and_store_documents(documents)
+                st.toast(f"Loaded {get_collection().count()} KB chunks.", icon="📚")
+
+# Load other non-LLM resources
+text_tok, text_model = load_text_classifier()
+sent_tok, sent_model = load_sentiment_model()
+demo_clf, demo_reg = load_tabular_models()
 
 
 # -------------------------
-# Module Implementations (Same as previous, omitted for brevity but remain functional)
+# Module: Risk Stratification
 # -------------------------
-if menu == "🧑‍⚕️ Risk Stratification":
+elif menu == "🧑‍⚕️ Risk Stratification":
     st.title("Risk Stratification")
     st.write("Predict a patient's risk level based on key health indicators.")
     submitted, pdata = patient_input_form("risk")
@@ -468,7 +483,15 @@ if menu == "🧑‍⚕️ Risk Stratification":
         score += (1 if pdata['smoker'] else 0)
         label = "Low Risk" if score <= 1 else ("Moderate Risk" if score <= 3 else "High Risk")
         st.success(f"Predicted Risk Level: *{label}* (Score: {score})")
+        
+        # *** DYNAMIC CONTEXT UPDATE ***
+        st.session_state.module_interaction_log[menu] = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "result": f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}."
+        }
 
+# -------------------------
+# Module: Length of Stay Prediction
 # -------------------------
 elif menu == "⏱ Length of Stay Prediction":
     st.title("Length of Stay Prediction")
@@ -478,7 +501,15 @@ elif menu == "⏱ Length of Stay Prediction":
         los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
         los_est_rounded = int(round(los_est))
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
+        
+        # *** DYNAMIC CONTEXT UPDATE ***
+        st.session_state.module_interaction_log[menu] = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "result": f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
+        }
 
+# -------------------------
+# Module: Patient Segmentation
 # -------------------------
 elif menu == "👥 Patient Segmentation":
     st.title("Patient Segmentation")
@@ -493,14 +524,22 @@ elif menu == "👥 Patient Segmentation":
         Xs = scaler.fit_transform(X_all)
         kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
         pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
-        st.success(f"Assigned Cohort: *Cohort {pred_label + 1}*")
-        # ... (visualization code omitted for brevity)
+        cohort_label = f"Cohort {pred_label + 1}"
+        st.success(f"Assigned Cohort: *{cohort_label}*")
+        
+        # *** DYNAMIC CONTEXT UPDATE ***
+        st.session_state.module_interaction_log[menu] = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "result": f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 metrics."
+        }
+        # ... (rest of visualization code omitted for brevity)
 
+# -------------------------
+# Module: Imaging Diagnostics
 # -------------------------
 elif menu == "🩻 Imaging Diagnostics":
     st.title("Imaging Diagnostics")
     st.write("Simulates medical image analysis using a dummy model.")
-    st.info("This is a placeholder module.")
     uploaded_file = st.file_uploader("Upload a medical image (e.g., X-ray)", type=["png", "jpg", "jpeg"])
     if uploaded_file:
         st.image(uploaded_file, caption='Uploaded Image', use_column_width=True)
@@ -513,12 +552,19 @@ elif menu == "🩻 Imaging Diagnostics":
             with st.spinner("Analyzing image..."):
                 result = dummy_diagnose_image(uploaded_file)
                 st.success(f"Diagnosis Result: *{result['diagnosis']}* (Confidence: {result['confidence']:.2f})")
+                
+                # *** DYNAMIC CONTEXT UPDATE ***
+                st.session_state.module_interaction_log[menu] = {
+                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "result": f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
+                }
 
+# -------------------------
+# Module: Sequence Forecasting
 # -------------------------
 elif menu == "📈 Sequence Forecasting":
     st.title("Sequence Forecasting")
     st.write("Predicts a patient's next health metric value based on a time-series of past data.")
-    st.info("This is a simplified example.")
     col1, col2 = st.columns(2)
     with col1:
         num_points = st.slider("Number of data points to generate", 5, 50, 15)
@@ -530,12 +576,19 @@ elif menu == "📈 Sequence Forecasting":
         noise = np.random.normal(0, noise_level * 10, num_points)
         data = trend + noise
         df_seq = pd.DataFrame({"Time": range(1, num_points + 1), "Metric Value": data})
-        st.subheader("Generated Time-Series Data")
         st.line_chart(df_seq.set_index("Time"))
         last_two = data[-2:]
         prediction = last_two[1] + (last_two[1] - last_two[0])
-        st.success(f"Based on the trend, the predicted next value is: *{prediction:.2f}*")
+        st.success(f"Predicted next value: *{prediction:.2f}*")
+        
+        # *** DYNAMIC CONTEXT UPDATE ***
+        st.session_state.module_interaction_log[menu] = {
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "result": f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
+        }
 
+# -------------------------
+# Module: Clinical Notes Analysis
 # -------------------------
 elif menu == "📝 Clinical Notes Analysis":
     st.title("Clinical Notes Analysis")
@@ -547,10 +600,21 @@ elif menu == "📝 Clinical Notes Analysis":
         else:
             res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
             if res['label'] == 'error' or res['label'] == 'unknown':
-                st.error("Failed to analyze notes. Check model loading.")
+                st.error("Failed to analyze notes.")
+                analysis_result = "Analysis failed."
             else:
+                analysis_result = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
                 st.success(f"Analysis: The note has a primary tone of *{res['label']}* (Confidence: {res['score']:.2f}).")
+                
+            # *** DYNAMIC CONTEXT UPDATE ***
+            st.session_state.module_interaction_log[menu] = {
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "result": f"Clinical Note Analysis performed. {analysis_result} Note snippet: '{notes[:30]}...'."
+            }
 
+
+# -------------------------
+# Module: Translator
 # -------------------------
 elif menu == "🌐 Translator":
     st.title("Translator")
@@ -571,7 +635,16 @@ elif menu == "🌐 Translator":
             translated_text = translate_text(text_to_trans, src_code, tgt_code)
             st.success("Translated Text:")
             st.write(translated_text)
+            
+            # *** DYNAMIC CONTEXT UPDATE ***
+            st.session_state.module_interaction_log[menu] = {
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "result": f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
+            }
 
+
+# -------------------------
+# Module: Sentiment Analysis
 # -------------------------
 elif menu == "💬 Sentiment Analysis":
     st.title("Patient Feedback Sentiment Analysis")
@@ -583,17 +656,76 @@ elif menu == "💬 Sentiment Analysis":
         else:
             sentiment_result = sentiment_text(patient_feedback, sent_tok, sent_model)
             if sentiment_result['label'] == 'unknown':
-                st.error("Sentiment analysis model could not be loaded. Check your dependencies.")
+                st.error("Sentiment analysis model could not be loaded.")
+                sentiment_label = "Analysis failed."
             else:
-                st.success(f"Sentiment: **{sentiment_result['label']}** (Confidence: {sentiment_result['score']:.2f})")
+                sentiment_label = sentiment_result['label']
+                st.success(f"Sentiment: **{sentiment_label}** (Confidence: {sentiment_result['score']:.2f})")
+                
+            # *** DYNAMIC CONTEXT UPDATE ***
+            st.session_state.module_interaction_log[menu] = {
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "result": f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
+            }
 
 # -------------------------
-# Module: Together Chat Assistant (Uses Gemini for implementation)
+# Module: RAG Chatbot
+# -------------------------
+elif menu == "🧠 RAG Chatbot":
+    
+    st.sidebar.markdown("---")
+    st.sidebar.header("RAG Settings")
+    st.session_state.selected_language = st.sidebar.selectbox(
+        "Select Response Language", 
+        list(LANGUAGE_DICT.keys()), 
+        index=0, 
+        key="rag_lang_select_sidebar"
+    )
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Knowledge Base Management")
+    kb_count = get_collection().count()
+    st.sidebar.info(f"Knowledge Base Chunks: **{kb_count}**")
+    
+    if st.sidebar.button("Reset/Reload Default KB", key="reset_kb_button"):
+        clear_and_reload_kb()
+        st.toast("Knowledge Base reset and reloaded!", icon="🔄")
+
+
+    st.markdown("## Health RAG Chatbot 🧠 (Context-Aware)")
+    st.markdown("This chatbot is aware of the **last action you performed** in the other modules, providing contextual replies based on your session history. It uses its internal KB and Google Search for reliability.")
+
+    if "messages_rag" not in st.session_state:
+        st.session_state["messages_rag"] = [
+            {"role": "assistant", "content": f"Hello! I'm your context-aware RAG medical assistant. I know the capabilities of all our modules. Try running an analysis (e.g., Risk Stratification) and then ask me about the result!"}
+        ]
+
+    for msg in st.session_state.messages_rag:
+        st.chat_message(msg["role"]).write(msg["content"])
+
+    if prompt := st.chat_input("Ask a health question or about your recent activity..."):
+        if not st.session_state.get('gemini_client'):
+            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your Gemini API key.")
+            st.stop()
+        
+        st.session_state.messages_rag.append({"role": "user", "content": prompt})
+        st.chat_message("user").write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Retrieving context, checking history, and generating response..."):
+                full_response = rag_pipeline(st.session_state.messages_rag[-1]["content"], st.session_state.selected_language)
+                
+                st.write(full_response)
+                
+                st.session_state.messages_rag.append({"role": "assistant", "content": full_response})
+
+# -------------------------
+# Module: Together Chat Assistant (Uses Gemini for general chat)
 # -------------------------
 elif menu == "💡 Together Chat Assistant":
     st.title("Together Chat Assistant (Powered by Gemini)")
-    st.write("Ask questions and get general health information from a language model assistant.")
+    st.write("Ask general questions. This assistant is NOT context-aware of your module activity.")
     
+    # ... (standard Gemini chat implementation for general questions)
     if not GEMINI_API_KEY:
         st.error("The chat assistant is not configured. Please check your GEMINI_API_KEY in `secrets.toml`.")
         st.stop()
@@ -624,68 +756,3 @@ elif menu == "💡 Together Chat Assistant":
                 full_response = response_json.get('response', response_json.get('error', "An unknown error occurred."))
                 st.write(full_response)
                 st.session_state.messages_assistant.append({"role": "assistant", "content": full_response})
-
-
-# -------------------------
-# Module: RAG Chatbot (The Main Focus)
-# -------------------------
-elif menu == "🧠 RAG Chatbot":
-    
-    # --- RAG Settings in Sidebar (Language Selection & KB Management) ---
-    st.sidebar.markdown("---")
-    st.sidebar.header("RAG Settings")
-
-    # Language selection for RAG output
-    st.session_state.selected_language = st.sidebar.selectbox(
-        "Select Response Language", 
-        list(LANGUAGE_DICT.keys()), 
-        index=0, 
-        key="rag_lang_select_sidebar"
-    )
-
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Knowledge Base Management")
-    
-    # Display current KB status (Checked *after* load attempt)
-    kb_count = get_collection().count()
-    st.sidebar.info(f"Knowledge Base Chunks: **{kb_count}**")
-    
-    # Button to reset and reload KB
-    if st.sidebar.button("Reset/Reload Default KB (Updated)", key="reset_kb_button"):
-        clear_and_reload_kb()
-        st.toast("Knowledge Base reset and reloaded with default health and module data!", icon="🔄")
-
-
-    # --- Main Chat Interface ---
-    
-    # Clean, concise title
-    st.markdown("## Health RAG Chatbot 🧠")
-    st.markdown("A specialized **Health Consultant AI**. It uses its fixed knowledge base (KB) which now includes all HealthAI Suite modules, then falls back to **Google Search** to provide comprehensive answers and **reliable external source links** for all health queries.")
-
-    # Initialize RAG chat history
-    if "messages_rag" not in st.session_state:
-        st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. I have a large knowledge base (Chunks: {kb_count}) that includes details on common health topics AND all HealthAI Suite modules. How can I help clarify your health doubts today?"}
-        ]
-
-    # Display chat messages
-    for msg in st.session_state.messages_rag:
-        st.chat_message(msg["role"]).write(msg["content"])
-
-    # Handle user input
-    if prompt := st.chat_input("Ask a health question or about a module (e.g., What is Risk Stratification?)..."):
-        if not st.session_state.get('gemini_client'):
-            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your Gemini API key.")
-            st.stop()
-        
-        st.session_state.messages_rag.append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Retrieving context and generating comprehensive response..."):
-                # Call the RAG pipeline with the LLM/Google Search fallback logic
-                full_response = rag_pipeline(st.session_state.messages_rag[-1]["content"], st.session_state.selected_language)
-                
-                st.write(full_response)
-                
-                st.session_state.messages_rag.append({"role": "assistant", "content": full_response})
