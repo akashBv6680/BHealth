@@ -15,6 +15,7 @@ from typing import List, Dict, Any
 import torch
 import torchvision.transforms as T
 from PIL import Image
+import datetime # <--- FIXED: Necessary for timestamp logging
 
 # This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
 try:
@@ -59,6 +60,7 @@ except ImportError:
 st.set_page_config(page_title="HealthAI Suite", page_icon="🩺", layout="wide")
 
 # Gemini AI config
+# NOTE: Ensure GEMINI_API_KEY is set in your Streamlit secrets (secrets.toml)
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 # Dictionary of supported languages and their ISO 639-1 codes
@@ -121,10 +123,14 @@ A specialized Health Consultant AI using Retrieval-Augmented Generation (RAG). I
 def initialize_rag_dependencies():
     """Initializes ChromaDB client, SentenceTransformer model, and Gemini client."""
     try:
+        # Use a temporary directory for ChromaDB storage
         db_path = tempfile.mkdtemp()
         db_client = chromadb.PersistentClient(path=db_path)
+        
+        # Load embedding model
         model = SentenceTransformer("all-MiniLM-L6-v2", device='cpu')
         
+        # Initialize Gemini Client and configure Google Search Tool
         if GEMINI_API_KEY and genai:
             gemini_client = genai.Client(api_key=GEMINI_API_KEY)
             google_search_tool = [types.Tool(google_search={})] 
@@ -139,10 +145,8 @@ def initialize_rag_dependencies():
         st.error(f"An error occurred during RAG dependency initialization: {e}. Check dependencies and API Key.")
         st.stop()
 
-# --- Placeholder Model Loaders (omitted for brevity) ---
 @st.cache_resource(show_spinner=False)
 def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion"):
-    # ... (function body)
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         model = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -153,7 +157,6 @@ def load_text_classifier(model_name="bhadresh-savani/bert-base-uncased-emotion")
 
 @st.cache_resource(show_spinner=False)
 def load_translation_model(src_lang="en", tgt_lang="hi"):
-    # ... (function body)
     pair = f"Helsinki-NLP/opus-mt-{src_lang}-{tgt_lang}"
     try:
         tkn = MarianTokenizer.from_pretrained(pair)
@@ -165,7 +168,6 @@ def load_translation_model(src_lang="en", tgt_lang="hi"):
 
 @st.cache_resource(show_spinner=False)
 def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-latest"):
-    # ... (function body)
     try:
         tok = AutoTokenizer.from_pretrained(model_name)
         m = AutoModelForSequenceClassification.from_pretrained(model_name)
@@ -176,7 +178,6 @@ def load_sentiment_model(model_name="cardiffnlp/twitter-roberta-base-sentiment-l
 
 @st.cache_resource(show_spinner=False)
 def load_tabular_models():
-    # ... (function body)
     clf = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestClassifier(n_estimators=50, random_state=42))])
     reg = Pipeline([("scaler", StandardScaler()), ("rf", RandomForestRegressor(n_estimators=50, random_state=42))])
     return clf, reg
@@ -200,18 +201,21 @@ def clear_and_reload_kb():
         
     db_client = st.session_state.db_client
     
+    # 1. Delete the existing collection
     try:
         db_client.delete_collection(name=COLLECTION_NAME)
     except Exception:
-        pass
+        pass # Ignore if collection doesn't exist
     
+    # 2. Process and store the default documents
     with st.spinner("Processing new knowledge base..."):
         documents = split_documents(KNOWLEDGE_BASE_TEXT)
         process_and_store_documents(documents)
     
     # Reset chat history and interaction log
+    kb_count = get_collection().count()
     st.session_state["messages_rag"] = [
-        {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. The Knowledge Base has been reset. Ask me anything!"}
+        {"role": "assistant", "content": f"Hello! I'm your RAG medical assistant. The Knowledge Base has been reset and now contains **{kb_count}** chunks. Ask me anything!"}
     ]
     st.session_state.module_interaction_log = {} # Reset the dynamic log
     st.rerun()
@@ -285,8 +289,7 @@ def retrieve_documents(query, n_results=5):
     
     return results['documents'][0] if results['documents'] else []
 
-
-# *** CRITICAL CHANGE: RAG PIPELINE WITH DYNAMIC CONTEXT INJECTION ***
+# *** CRITICAL FUNCTION: RAG PIPELINE WITH DYNAMIC CONTEXT INJECTION ***
 def rag_pipeline(query, selected_language):
     """
     Executes the RAG pipeline with dynamic session context and LLM fallback.
@@ -365,7 +368,29 @@ def rag_pipeline(query, selected_language):
         return "Failed to get a valid response from the model."
 
 
-# --- Other Utility Functions (omitted for brevity) ---
+# -------------------------
+# Utility Functions
+# -------------------------
+def patient_input_form(key_prefix="p"):
+    with st.form(key=f"form_{key_prefix}"):
+        col1, col2 = st.columns(2)
+        with col1:
+            age = st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"{key_prefix}_gender")
+            bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0, key=f"{key_prefix}_bmi")
+            sbp = st.number_input("Systolic BP", min_value=60, max_value=250, value=120, key=f"{key_prefix}_sbp")
+        with col2:
+            dbp = st.number_input("Diastolic BP", min_value=40, max_value=160, value=80, key=f"{key_prefix}_dbp")
+            glucose = st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
+            cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=100, max_value=500, value=180, key=f"{key_prefix}_cholesterol")
+            smoker = st.selectbox("Smoker", ["No", "Yes"], index=0, key=f"{key_prefix}_smoker")
+        submitted = st.form_submit_button("Run Analysis")
+    data = {
+        "age": int(age), "gender": gender, "bmi": float(bmi), "sbp": float(sbp), "dbp": float(dbp),
+        "glucose": float(glucose), "cholesterol": float(cholesterol), "smoker": smoker == "Yes"
+    }
+    return submitted, data
+    
 def text_classify(text: str, tokenizer, model, labels=None):
     if tokenizer is None or model is None: return {"label": "unknown", "score": 0.0}
     try:
@@ -405,26 +430,6 @@ def preprocess_structured_input(data: Dict[str, Any]):
         try: vals.append(float(v))
         except Exception: vals.append(0.0)
     return np.array(vals).reshape(1, -1)
-    
-def patient_input_form(key_prefix="p"):
-    with st.form(key=f"form_{key_prefix}"):
-        col1, col2 = st.columns(2)
-        with col1:
-            age = st.number_input("Age", min_value=0, max_value=120, value=45, key=f"{key_prefix}_age")
-            gender = st.selectbox("Gender", ["Male", "Female", "Other"], key=f"{key_prefix}_gender")
-            bmi = st.number_input("BMI", min_value=10.0, max_value=60.0, value=25.0, key=f"{key_prefix}_bmi")
-            sbp = st.number_input("Systolic BP", min_value=60, max_value=250, value=120, key=f"{key_prefix}_sbp")
-        with col2:
-            dbp = st.number_input("Diastolic BP", min_value=40, max_value=160, value=80, key=f"{key_prefix}_dbp")
-            glucose = st.number_input("Glucose (mg/dL)", min_value=40, max_value=400, value=100, key=f"{key_prefix}_glucose")
-            cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=100, max_value=500, value=180, key=f"{key_prefix}_cholesterol")
-            smoker = st.selectbox("Smoker", ["No", "Yes"], index=0, key=f"{key_prefix}_smoker")
-        submitted = st.form_submit_button("Run Analysis")
-    data = {
-        "age": int(age), "gender": gender, "bmi": float(bmi), "sbp": float(sbp), "dbp": float(dbp),
-        "glucose": float(glucose), "cholesterol": float(cholesterol), "smoker": smoker == "Yes"
-    }
-    return submitted, data
 
 
 # -------------------------
@@ -447,6 +452,7 @@ menu = st.sidebar.radio("Select Module", [
 # Initialize session state variables
 if 'selected_language' not in st.session_state:
     st.session_state.selected_language = "English"
+# Initialized for dynamic context
 if 'module_interaction_log' not in st.session_state:
     st.session_state.module_interaction_log = {}
 
@@ -470,7 +476,7 @@ demo_clf, demo_reg = load_tabular_models()
 # -------------------------
 # Module: Risk Stratification
 # -------------------------
-elif menu == "🧑‍⚕️ Risk Stratification":
+if menu == "🧑‍⚕️ Risk Stratification":
     st.title("Risk Stratification")
     st.write("Predict a patient's risk level based on key health indicators.")
     submitted, pdata = patient_input_form("risk")
@@ -486,8 +492,8 @@ elif menu == "🧑‍⚕️ Risk Stratification":
         
         # *** DYNAMIC CONTEXT UPDATE ***
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "result": f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}."
+            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+            "result": f"Predicted Risk Level: {label} (Score: {score}). Input patient data: Age {pdata['age']}, BMI {pdata['bmi']}, Glucose {pdata['glucose']}."
         }
 
 # -------------------------
@@ -498,13 +504,14 @@ elif menu == "⏱ Length of Stay Prediction":
     st.write("Predicts the expected hospital length of stay (in days) for a patient.")
     submitted, pdata = patient_input_form("los")
     if submitted:
+        # Simplified prediction logic
         los_est = 3.0 + (pdata['age']/30.0) + (pdata['bmi']/40.0) + (pdata['glucose']/200.0)
         los_est_rounded = int(round(los_est))
         st.success(f"Predicted length of stay: *{los_est_rounded} days*")
         
         # *** DYNAMIC CONTEXT UPDATE ***
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
             "result": f"Predicted LOS: {los_est_rounded} days. Input patient data: Age {pdata['age']}, Glucose {pdata['glucose']}."
         }
 
@@ -529,10 +536,10 @@ elif menu == "👥 Patient Segmentation":
         
         # *** DYNAMIC CONTEXT UPDATE ***
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "result": f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 metrics."
+            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
+            "result": f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics."
         }
-        # ... (rest of visualization code omitted for brevity)
+        # (Visualization code omitted for brevity)
 
 # -------------------------
 # Module: Imaging Diagnostics
@@ -555,7 +562,7 @@ elif menu == "🩻 Imaging Diagnostics":
                 
                 # *** DYNAMIC CONTEXT UPDATE ***
                 st.session_state.module_interaction_log[menu] = {
-                    "timestamp": datetime.now().strftime("%H:%M:%S"),
+                    "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
                     "result": f"Dummy image diagnosis: {result['diagnosis']} (Confidence: {result['confidence']:.2f})."
                 }
 
@@ -576,6 +583,7 @@ elif menu == "📈 Sequence Forecasting":
         noise = np.random.normal(0, noise_level * 10, num_points)
         data = trend + noise
         df_seq = pd.DataFrame({"Time": range(1, num_points + 1), "Metric Value": data})
+        st.subheader("Generated Time-Series Data")
         st.line_chart(df_seq.set_index("Time"))
         last_two = data[-2:]
         prediction = last_two[1] + (last_two[1] - last_two[0])
@@ -583,7 +591,7 @@ elif menu == "📈 Sequence Forecasting":
         
         # *** DYNAMIC CONTEXT UPDATE ***
         st.session_state.module_interaction_log[menu] = {
-            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
             "result": f"Predicted next value: {prediction:.2f} using {num_points} data points (noise: {noise_level})."
         }
 
@@ -600,7 +608,7 @@ elif menu == "📝 Clinical Notes Analysis":
         else:
             res = text_classify(notes, text_tok, text_model, labels=["Anger", "Disgust", "Fear", "Joy", "Neutral", "Sadness", "Surprise"])
             if res['label'] == 'error' or res['label'] == 'unknown':
-                st.error("Failed to analyze notes.")
+                st.error("Failed to analyze notes. Check model loading.")
                 analysis_result = "Analysis failed."
             else:
                 analysis_result = f"Tone: {res['label']} (Confidence: {res['score']:.2f})"
@@ -608,7 +616,7 @@ elif menu == "📝 Clinical Notes Analysis":
                 
             # *** DYNAMIC CONTEXT UPDATE ***
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
                 "result": f"Clinical Note Analysis performed. {analysis_result} Note snippet: '{notes[:30]}...'."
             }
 
@@ -638,7 +646,7 @@ elif menu == "🌐 Translator":
             
             # *** DYNAMIC CONTEXT UPDATE ***
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
                 "result": f"Text translated from {src_lang} to {tgt_lang}. Translated snippet: '{translated_text[:30]}...'."
             }
 
@@ -664,68 +672,17 @@ elif menu == "💬 Sentiment Analysis":
                 
             # *** DYNAMIC CONTEXT UPDATE ***
             st.session_state.module_interaction_log[menu] = {
-                "timestamp": datetime.now().strftime("%H:%M:%S"),
+                "timestamp": datetime.datetime.now().strftime("%H:%M:%S"),
                 "result": f"Sentiment analyzed: {sentiment_label} (Confidence: {sentiment_result['score']:.2f}). Feedback snippet: '{patient_feedback[:30]}...'."
             }
 
 # -------------------------
-# Module: RAG Chatbot
-# -------------------------
-elif menu == "🧠 RAG Chatbot":
-    
-    st.sidebar.markdown("---")
-    st.sidebar.header("RAG Settings")
-    st.session_state.selected_language = st.sidebar.selectbox(
-        "Select Response Language", 
-        list(LANGUAGE_DICT.keys()), 
-        index=0, 
-        key="rag_lang_select_sidebar"
-    )
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Knowledge Base Management")
-    kb_count = get_collection().count()
-    st.sidebar.info(f"Knowledge Base Chunks: **{kb_count}**")
-    
-    if st.sidebar.button("Reset/Reload Default KB", key="reset_kb_button"):
-        clear_and_reload_kb()
-        st.toast("Knowledge Base reset and reloaded!", icon="🔄")
-
-
-    st.markdown("## Health RAG Chatbot 🧠 (Context-Aware)")
-    st.markdown("This chatbot is aware of the **last action you performed** in the other modules, providing contextual replies based on your session history. It uses its internal KB and Google Search for reliability.")
-
-    if "messages_rag" not in st.session_state:
-        st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": f"Hello! I'm your context-aware RAG medical assistant. I know the capabilities of all our modules. Try running an analysis (e.g., Risk Stratification) and then ask me about the result!"}
-        ]
-
-    for msg in st.session_state.messages_rag:
-        st.chat_message(msg["role"]).write(msg["content"])
-
-    if prompt := st.chat_input("Ask a health question or about your recent activity..."):
-        if not st.session_state.get('gemini_client'):
-            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your Gemini API key.")
-            st.stop()
-        
-        st.session_state.messages_rag.append({"role": "user", "content": prompt})
-        st.chat_message("user").write(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Retrieving context, checking history, and generating response..."):
-                full_response = rag_pipeline(st.session_state.messages_rag[-1]["content"], st.session_state.selected_language)
-                
-                st.write(full_response)
-                
-                st.session_state.messages_rag.append({"role": "assistant", "content": full_response})
-
-# -------------------------
-# Module: Together Chat Assistant (Uses Gemini for general chat)
+# Module: Together Chat Assistant (General Purpose LLM)
 # -------------------------
 elif menu == "💡 Together Chat Assistant":
     st.title("Together Chat Assistant (Powered by Gemini)")
-    st.write("Ask general questions. This assistant is NOT context-aware of your module activity.")
+    st.write("Ask questions and get general health information from a language model assistant.")
     
-    # ... (standard Gemini chat implementation for general questions)
     if not GEMINI_API_KEY:
         st.error("The chat assistant is not configured. Please check your GEMINI_API_KEY in `secrets.toml`.")
         st.stop()
@@ -756,3 +713,67 @@ elif menu == "💡 Together Chat Assistant":
                 full_response = response_json.get('response', response_json.get('error', "An unknown error occurred."))
                 st.write(full_response)
                 st.session_state.messages_assistant.append({"role": "assistant", "content": full_response})
+
+
+# -------------------------
+# Module: RAG Chatbot (Context-Aware)
+# -------------------------
+elif menu == "🧠 RAG Chatbot":
+    
+    # --- RAG Settings in Sidebar (Language Selection & KB Management) ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("RAG Settings")
+
+    # Language selection for RAG output
+    st.session_state.selected_language = st.sidebar.selectbox(
+        "Select Response Language", 
+        list(LANGUAGE_DICT.keys()), 
+        index=0, 
+        key="rag_lang_select_sidebar"
+    )
+
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("Knowledge Base Management")
+    
+    # Display current KB status (Checked *after* load attempt)
+    kb_count = get_collection().count()
+    st.sidebar.info(f"Knowledge Base Chunks: **{kb_count}**")
+    
+    # Button to reset and reload KB
+    if st.sidebar.button("Reset/Reload Default KB (Updated)", key="reset_kb_button"):
+        clear_and_reload_kb()
+        st.toast("Knowledge Base reset and reloaded with default health and module data!", icon="🔄")
+
+
+    # --- Main Chat Interface ---
+    
+    st.markdown("## Health RAG Chatbot 🧠 (Context-Aware)")
+    st.markdown("A specialized **Health Consultant AI**. It uses its fixed knowledge base (KB), falls back to **Google Search** for current info, AND is aware of your **recent activity** in the other modules to provide contextual replies.")
+
+    # Initialize RAG chat history
+    if "messages_rag" not in st.session_state:
+        st.session_state["messages_rag"] = [
+            {"role": "assistant", "content": f"Hello! I'm your context-aware RAG medical assistant. I know the capabilities of all our modules. Try running an analysis (e.g., Risk Stratification) and then ask me about the result!"}
+        ]
+
+    # Display chat messages
+    for msg in st.session_state.messages_rag:
+        st.chat_message(msg["role"]).write(msg["content"])
+
+    # Handle user input
+    if prompt := st.chat_input("Ask a health question or about your recent activity..."):
+        if not st.session_state.get('gemini_client'):
+            st.chat_message("assistant").write("The RAG chatbot is not configured. Please check your Gemini API key.")
+            st.stop()
+        
+        st.session_state.messages_rag.append({"role": "user", "content": prompt})
+        st.chat_message("user").write(prompt)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Retrieving context, checking history, and generating response..."):
+                # Call the RAG pipeline with the LLM/Google Search fallback logic
+                full_response = rag_pipeline(st.session_state.messages_rag[-1]["content"], st.session_state.selected_language)
+                
+                st.write(full_response)
+                
+                st.session_state.messages_rag.append({"role": "assistant", "content": full_response})
