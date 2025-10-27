@@ -616,7 +616,10 @@ elif menu == "📈 Sequence Forecasting":
             "timestamp": current_time,
             "result": result_str
         }
+
+        
         st.session_state.module_interaction_log[menu] = log_entry
+        
 
 
 # -------------------------
