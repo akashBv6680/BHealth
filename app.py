@@ -15,6 +15,8 @@ from typing import List, Dict, Any
 import torch
 import torchvision.transforms as T
 from PIL import Image
+import plotly.express as px  
+from sklearn.decomposition import PCA 
 
 # This block MUST be at the very top to fix the sqlite3 version issue for ChromaDB.
 try:
