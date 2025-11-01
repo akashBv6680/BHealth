@@ -23,7 +23,30 @@ Pillow
 transformers
 tf-keras
 
-# Removed: protobuf<5.0.0
-# Removed: pydantic<2.0
-# Removed: markdown-it-py==2.2.0
-# Removed: mdurl==0.1.2
+# Simplified requirements.txt - Removing pins to resolve ResolutionImpossible
+
+# Core Streamlit and LLM Dependencies
+streamlit
+google-genai             # Official Google GenAI SDK
+pysqlite3-binary
+chromadb
+sentence-transformers
+langchain-text-splitters
+requests
+# --- Visualization Libraries (MISSING IN YOUR LIST) ---
+plotly                   # Required by plotly.express
+plotly-express           # Required for 3D Segmentation Plot
+
+# Data Science and ML Frameworks
+numpy
+pandas
+matplotlib
+scikit-learn
+mlxtend
+
+# Hugging Face and PyTorch
+torch
+torchvision
+Pillow
+transformers
+# tf-keras               
