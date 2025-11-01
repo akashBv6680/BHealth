@@ -103,9 +103,49 @@ EDGE_VOICE_MAP = {
 # Knowledge Base (truncated here)
 # --------------------------------
 COLLECTION_NAME = "rag_documents"
+
+# --- MASSIVELY EXPANDED KNOWLEDGE BASE (MULTILINGUAL - NO CHANGE) ---
 KB_TEXT = """
 ### HealthAI Suite Modules Overview
-... (same KB content as earlier) ...
+The HealthAI Suite is an integrated platform offering ten key modules for intelligent healthcare analytics. These modules cover risk assessment, predictive modeling, patient management, clinical text processing, and diagnostic support. Clients and users can navigate to any module via the sidebar to perform a specific function, or use the RAG Chatbot for a general consultation.
+
+### 🧑‍⚕️ Risk Stratification Module
+This module assesses a patient's **overall health risk** (Low, Moderate, or High) based on structured inputs like age, BMI, blood pressure (SBP/DBP), glucose, cholesterol, and smoking status. It helps clinicians quickly identify patients who may require intensive intervention or monitoring.
+
+### ⏱ Length of Stay Prediction Module
+This tool estimates the **expected number of days** a patient will remain hospitalized. It uses factors like admission metrics (age, vital signs, initial labs) to forecast resource utilization and aid in discharge planning and bed management.
+
+### 👥 Patient Segmentation Module
+This module uses clustering techniques (like K-Means) on various patient health metrics to **group patients into distinct cohorts**. This helps identify common patient profiles, tailor care pathways, and analyze outcomes based on specific, shared characteristics.
+
+### 🩻 Imaging Diagnostics Module
+This module is designed to support clinicians by performing **AI-driven analysis of medical images** (e.g., X-rays, CT scans). It helps detect, classify, and localize pathologies (like pneumonia, fractures, or masses), offering a diagnostic prediction and a confidence score.
+
+### 📈 Sequence Forecasting Module
+This module is specialized for **time-series data**. It analyzes a historical sequence of a patient's metric (e.g., blood sugar, temperature) and predicts the **next value in the sequence**. This is useful for anticipating future patient states.
+
+### 📝 Clinical Notes Analysis Module
+This tool processes **unstructured clinical text** (doctor's notes, discharge summaries) to extract meaningful insights. It can classify the type of note or analyze the emotional tone to aid in quality control and information extraction.
+
+### 🌐 Translator Module
+The Translator provides real-time, bi-directional translation for **clinical and patient-facing text** between various languages (e.g., English, Spanish, Hindi). This is crucial for improving communication between multilingual staff and patients.
+
+### 💬 Sentiment Analysis Module
+This module is dedicated to analyzing **patient feedback** or reviews to automatically determine the **emotional tone** (Positive, Negative, or Neutral). It helps healthcare providers quickly gauge patient satisfaction and pinpoint areas for operational improvement.
+
+### 💡 Together Chat Assistant Module
+This is a **general-purpose chat assistant** powered by the Google Gemini model. It is designed for quick, general inquiries and conversation about non-specific health topics, acting as a general-knowledge resource.
+
+### 🧠 RAG Chatbot Module
+This is a **specialized Health Consultant AI**. It uses **Retrieval-Augmented Generation (RAG)**, meaning it first consults its fixed internal **Knowledge Base (KB)** (containing detailed common health topics) and, if the answer is outside the KB, it automatically uses the **Google Search tool** to find current information and provides **citations** for reliability. It acts as the primary expert query engine.
+
+### Common Health Topics (Detailed KB)
+The RAG chatbot's internal KB also contains detailed information on common conditions.
+**Common Cold and Flu:** Viral infections of the respiratory tract. Cold is milder; flu is severe, often with fever and body aches. Management: rest, hydration, OTC meds.
+**Diabetes (Type 2) Management:** Chronic high blood sugar. Managed by diet, exercise (150 mins/week), Metformin, and monitoring. Risks: heart disease, nerve damage.
+**Hypertension (High Blood Pressure):** High force against artery walls. Often silent. Treatment: DASH diet, exercise, ACE inhibitors, diuretics. Normal BP < 120/80 mmHg.
+**Asthma Control:** Narrowing and swelling of airways. Symptoms: wheezing, shortness of breath. Treatment: Reliever (quick) and Preventer (daily) inhalers.
+**Mental Health:** Depression (persistent sadness) and Anxiety (excessive worry). Treated with psychotherapy (CBT) and medication (antidepressants).
 """
 
 # --------------------------------
