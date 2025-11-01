@@ -306,10 +306,6 @@ def process_and_store_documents(documents):
         ids=document_ids
     )
 
-# app.py - Updated RAG/Gemini core functions
-
-# ... (Previous functions: get_collection, clear_and_reload_kb, call_gemini_api, split_documents, process_and_store_documents)
-
 def retrieve_documents(query, n_results=5):
     """
     Retrieves relevant documents and distances from ChromaDB.
@@ -555,7 +551,74 @@ elif menu == "👥 Patient Segmentation":
         kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs)
         pred_label = kmeans.predict(Xs[-1].reshape(1, -1))[0]
         st.success(f"Assigned Cohort: *Cohort {pred_label + 1}*")
-        # ... (visualization code omitted for brevity)
+        # -------------------------
+# Module: Patient Segmentation (WITH VISUALIZATION)
+# -------------------------
+elif menu == "👥 Patient Segmentation":
+    st.title("Patient Segmentation 👥")
+    st.write("Assigns a patient to a distinct health cohort and visualizes the clustering using 3D PCA.")
+    submitted, pdata = patient_input_form("seg")
+    if submitted:
+        # 1. Prepare Data
+        X_new = preprocess_structured_input(pdata)
+        rng = np.random.RandomState(42)
+        # 6 features: age, bmi, sbp, dbp, glucose, cholesterol
+        synthetic_data = rng.normal(loc=[50,25,120,80,100,180], scale=[15,5,20,10,30,40], size=(200,6))
+        X_all = np.vstack([synthetic_data, X_new])
+        
+        # 2. Scale and Cluster
+        scaler = StandardScaler()
+        Xs = scaler.fit_transform(X_all)
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10).fit(Xs[:-1]) # Fit on synthetic data only
+        
+        # Predict label for new patient and all data
+        pred_label_index = kmeans.predict(Xs[-1].reshape(1, -1))[0]
+        all_labels = kmeans.predict(Xs)
+        cohort_label = f"Cohort {pred_label_index + 1}"
+        
+        st.success(f"Assigned Cohort: **{cohort_label}**")
+        st.info("The visualization below shows the 6-dimensional data reduced to 3 dimensions (PCA) for plotting. Your patient is the red dot.")
+
+        # 3. Visualization using PCA (Reduce 6D to 3D)
+        pca = PCA(n_components=3, random_state=42)
+        X_pca = pca.fit_transform(Xs)
+        
+        # Create DataFrame for Plotly
+        df_plot = pd.DataFrame(X_pca, columns=['PCA1', 'PCA2', 'PCA3'])
+        df_plot['Cohort'] = [f"Cohort {l+1}" for l in all_labels]
+        df_plot['Type'] = ['Existing' for _ in range(len(synthetic_data))] + ['New Patient']
+
+        # Determine colors and sizes for the plot
+        color_map = {f"Cohort {i+1}": px.colors.qualitative.Plotly[i] for i in range(3)}
+        color_map['New Patient'] = 'red'
+        
+        size_map = {'Existing': 5, 'New Patient': 10}
+        
+        fig = px.scatter_3d(
+            df_plot,
+            x='PCA1',
+            y='PCA2',
+            z='PCA3',
+            color='Type', # Color by 'Type' to highlight 'New Patient' in red
+            symbol='Type',
+            opacity=0.8,
+            title=f"Patient Segmentation (PCA-Reduced to 3D)",
+            color_discrete_map={'Existing': 'blue', 'New Patient': 'red'},
+            custom_data=['Cohort']
+        )
+        
+        fig.update_traces(
+            marker=dict(size=[size_map[t] for t in df_plot['Type']]),
+            hovertemplate="<b>Cohort:</b> %{customdata[0]}<br><b>Type:</b> %{customdata[1]}<br>PCA1: %{x}<br>PCA2: %{y}<br>PCA3: %{z}<extra></extra>"
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # *** DYNAMIC CONTEXT UPDATE (ULTRA-ROBUST - Single-line assignment) ***
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
+        result_str = f"Patient assigned to {cohort_label}. K-Means clustering performed on 6 health metrics and visualized via 3D PCA."
+        
+        st.session_state.module_interaction_log[menu] = {"timestamp": current_time, "result": result_str}
 
 # -------------------------
 elif menu == "🩻 Imaging Diagnostics":
