@@ -799,12 +799,12 @@ elif menu == "🧠 RAG Chatbot":
 
     # --- Main Chat Interface ---
     st.markdown("## Health RAG Chatbot 🧠 (Context-Aware)")
-    st.markdown("A specialized **Health Consultant AI**. It uses its fixed knowledge base (KB), falls back to **Google Search** for current info, AND is aware of your **recent activity** in the other modules to provide contextual replies.")
+    st.markdown("IM specialized **Health Consultant AI** ")
 
     # Initialize RAG chat history
     if "messages_rag" not in st.session_state:
         st.session_state["messages_rag"] = [
-            {"role": "assistant", "content": "Hello! I'm your context-aware RAG medical assistant. I know the capabilities of all our modules. Try running an analysis (e.g., Risk Stratification) and then ask me about the result!"}
+            {"role": "assistant", "content": "Hello! I'm your Personal AI medical assistant."}
         ]
 
     # Display chat messages
