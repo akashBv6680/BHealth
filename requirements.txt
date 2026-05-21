@@ -7,7 +7,6 @@ google-genai  # official SDK; import as: from google import genai; from google.g
 pysqlite3-binary  # for Chroma sqlite hack on Streamlit Cloud
 
 # RAG / Embeddings
-chromadb
 sentence-transformers
 langchain-text-splitters
 
@@ -30,3 +29,6 @@ transformers
 # Text-to-Speech engines (for Voice mode)
 edge-tts     # Microsoft neural voices
 gTTS         # Simple Google Translate TTS
+
+protobuf==3.20.3
+chromadb
