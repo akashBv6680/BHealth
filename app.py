@@ -10,6 +10,12 @@ from typing import Dict, Any
 import torch
 from PIL import Image
 
+HF_TOKEN = st.secrets.get("HF_TOKEN")
+if HF_TOKEN:
+    os.environ["HF_TOKEN"] = HF_TOKEN
+    os.environ["HUGGINGFACE_HUB_TOKEN"] = HF_TOKEN
+
+
 # sqlite fix for Chroma
 try:
     __import__("pysqlite3")
